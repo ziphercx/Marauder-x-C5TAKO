@@ -30,6 +30,11 @@ void BatteryInterface::RunSetup() {
   #ifdef HAS_BATTERY
 
     #ifdef BATTERY_ADC_PIN
+        #ifdef BATTERY_ADC_ENABLE_PIN
+          pinMode(BATTERY_ADC_ENABLE_PIN, OUTPUT);
+          digitalWrite(BATTERY_ADC_ENABLE_PIN, LOW);
+          analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db);
+        #endif
         analogReadResolution(12);
         pinMode(BATTERY_ADC_PIN, INPUT);
         this->has_adc_battery = true;
@@ -92,7 +97,14 @@ int8_t BatteryInterface::getBatteryLevel() {
 
     #ifdef BATTERY_ADC_PIN
       if (this->has_adc_battery) {
+        #ifdef BATTERY_ADC_ENABLE_PIN
+          digitalWrite(BATTERY_ADC_ENABLE_PIN, HIGH);
+          delay(3);
+        #endif
         int voltage_mv = analogReadMilliVolts(BATTERY_ADC_PIN) * 2; // voltage divider ratio 2:1
+        #ifdef BATTERY_ADC_ENABLE_PIN
+          digitalWrite(BATTERY_ADC_ENABLE_PIN, LOW);
+        #endif
         if (voltage_mv <= 3300) return 0;
         if (voltage_mv >= 4150) return 100;
         return (int8_t)(((voltage_mv - 3300) * 100) / 850);

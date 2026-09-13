@@ -17,6 +17,10 @@
 
 #include <TFT_eSPI.h>
 
+#if defined(MARAUDER_C5TAKO) && !defined(ST7789_DRIVER)
+  #error "C5TAKO requires User_Setup_c5tako.h (ST7789_DRIVER)"
+#endif
+
 // Reject board/display configuration mismatches at compile time. A mismatched
 // TFT setup can boot normally while driving the wrong controller and pins.
 #if defined(MARAUDER_CYD_3_5_INCH) && !defined(ST7796_DRIVER)
@@ -156,7 +160,11 @@ class Display
     void getTouchWhileFunction(bool pressed);
     void init();
     void RunSetup();
-    void showCenterText(const char* text, int y, bool small_pp = false, uint8_t text_size = BANNER_TEXT_SIZE);
+    #ifdef MARAUDER_C5TAKO
+      void showCenterText(const char* text, int y, bool small_pp = false, uint8_t text_size = 1);
+    #else
+      void showCenterText(const char* text, int y, bool small_pp = false, uint8_t text_size = BANNER_TEXT_SIZE);
+    #endif
     void touchToExit();
     void twoPartDisplay(String center_text);
     void updateBanner(String msg);

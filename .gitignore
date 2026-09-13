@@ -1,5 +1,8 @@
 
 .pio/
+build-c5tako.log
+esp32_marauder/esp32_marauder.ino.cpp
+Marauder-c5tako-8MB-merged.bin
 .venv/
 coverage.xml
 .vscode/arduino.json
@@ -8,3 +11,4 @@ coverage.xml
 esp32_marauder/.vscode/settings.json
 __pycache__/
 *.pyc
+/pio-libraries

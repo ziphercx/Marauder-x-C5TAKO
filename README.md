@@ -20,6 +20,8 @@
 [![Firmware coverage](https://codecov.io/gh/justcallmekoko/ESP32Marauder/branch/develop/graph/badge.svg?flag=firmware-unit-tests)](https://app.codecov.io/gh/justcallmekoko/ESP32Marauder/tree/develop)
 
 ## Getting Started
+For the C5TAKO / XIAO ESP32-C5 carrier, see the [PlatformIO build and pinout guide](C5TAKO.md).
+
 Download the [latest release](https://github.com/justcallmekoko/ESP32Marauder/releases/latest) of the firmware.  
 
 Check out the project [wiki](https://github.com/justcallmekoko/ESP32Marauder/wiki) for a full overview of the ESP32 Marauder

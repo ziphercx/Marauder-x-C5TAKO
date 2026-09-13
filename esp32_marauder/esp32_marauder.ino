@@ -226,7 +226,7 @@ uint32_t currentTime  = 0;
 #endif
 
 #ifdef HAS_C5_SD
-  SPIClass sharedSPI(SPI);
+  SPIClass& sharedSPI = SPI; // Share the live bus; copying before SPI's constructor copies a null mutex.
   SDInterface sd_obj = SDInterface(&sharedSPI, SD_CS);
 #endif
 
@@ -250,8 +250,22 @@ void setup()
     digitalWrite(ACT_LED_PIN, LOW);
   #endif
 
-  while(!Serial)
-    delay(10);
+  #ifdef MARAUDER_C5TAKO
+    // USB CDC must not prevent standalone battery-powered boot.
+    const uint32_t serial_start = millis();
+    while (!Serial && millis() - serial_start < 1000) delay(10);
+    // Deselect every carrier SPI device, including the unused CC1101.
+    for (int cs : {TFT_CS, SD_CS, 2}) {
+      pinMode(cs, OUTPUT);
+      digitalWrite(cs, HIGH);
+    }
+    pinMode(3, OUTPUT);
+    digitalWrite(3, LOW); // Keep the unused buzzer silent.
+    pinMode(27, OUTPUT);
+    digitalWrite(27, HIGH); // XIAO user LED is active low.
+  #else
+    while(!Serial) delay(10);
+  #endif
 
   #ifdef HAS_C5_SD
     sharedSPI.begin(SD_SCK, SD_MISO, SD_MOSI);

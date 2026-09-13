@@ -63,7 +63,9 @@
   #define MODE_CUSTOM 4
 
   //// HARDWARE NAMES
-  #ifdef MARAUDER_M5STICKC
+  #ifdef MARAUDER_C5TAKO
+    #define HARDWARE_NAME "C5TAKO"
+  #elif defined(MARAUDER_M5STICKC)
     #define HARDWARE_NAME "M5Stick-C Plus"
   #elif defined(MARAUDER_M5STICKCP2)
     #define HARDWARE_NAME "M5Stick-C Plus2"
@@ -126,6 +128,9 @@
   //// END HARDWARE NAMES
 
  //// BOARD FEATURES
+  #ifdef MARAUDER_C5TAKO
+    #include "configs_c5tako.h"
+  #endif
   #if defined(DUAL_MINI_C5)
     #define MARAUDER_MINI_V3
   #endif

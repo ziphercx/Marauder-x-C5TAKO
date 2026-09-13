@@ -6,6 +6,11 @@
 #include "WdgResponse.h"
 #include "lang_var.h"
 
+#ifdef MARAUDER_C5TAKO
+  #include "MenuFunctions.h"
+  extern MenuFunctions menu_function_obj;
+#endif
+
 #ifdef HAS_PSRAM
   struct mac_addr* mac_history = nullptr;
 #endif
@@ -2186,6 +2191,7 @@ int WiFiScan::clearList(uint8_t list_type) {
     ssids->clear();
     return num_cleared;
   }
+  return num_cleared;
 }
 
 bool WiFiScan::addSSID(String essid) {
@@ -2631,6 +2637,14 @@ void WiFiScan::StartScan(uint8_t scan_mode, uint16_t color) {
   }
 
   this->currentScanMode = scan_mode;
+  #ifdef MARAUDER_C5TAKO
+    // Mini mode omits the upstream touchscreen-only titles. Use the selected menu label.
+    auto* menu = menu_function_obj.current_menu;
+    if (scan_mode != WIFI_SCAN_OFF && scan_mode != WIFI_PACKET_MONITOR &&
+        menu && menu->list && menu->selected < menu->list->size()) {
+      display_obj.updateBanner(menu->list->get(menu->selected).name);
+    }
+  #endif
 }
 
 void WiFiScan::setLEDMode(int mode) {

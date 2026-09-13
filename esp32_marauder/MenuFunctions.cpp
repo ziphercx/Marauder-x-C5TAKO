@@ -30,9 +30,15 @@ void MenuFunctions::drawMiniMenuButton(int b, int x, bool selected, uint16_t tex
   display_obj.tft.setFreeFont(NULL);
   display_obj.tft.setTextSize(1);
   display_obj.tft.setTextWrap(false);
-  display_obj.tft.fillRect(button_x, button_y - 4, KEY_W, KEY_H, background);
   display_obj.tft.setTextColor(text_color, background);
-  display_obj.tft.setCursor(button_x + BUTTON_PADDING, button_y + (KEY_H / 2) - 8);
+  #ifdef MARAUDER_C5TAKO
+    display_obj.tft.fillRect(button_x, button_y, KEY_W, KEY_H, background);
+    display_obj.tft.setTextSize(KEY_TEXTSIZE);
+    display_obj.tft.setCursor(button_x + BUTTON_PADDING, button_y + (KEY_H - 8 * KEY_TEXTSIZE) / 2);
+  #else
+    display_obj.tft.fillRect(button_x, button_y - 4, KEY_W, KEY_H, background);
+    display_obj.tft.setCursor(button_x + BUTTON_PADDING, button_y + (KEY_H / 2) - 8);
+  #endif
   display_obj.tft.print(this->menuLabelWindow(current_menu->list->get(x).name, text_offset));
 }
 #endif
@@ -42,7 +48,7 @@ String MenuFunctions::menuLabelWindow(const String& name, uint16_t offset) {
 
   #ifdef HAS_MINI_SCREEN
     display_obj.tft.setFreeFont(NULL);
-    display_obj.tft.setTextSize(1);
+    display_obj.tft.setTextSize(KEY_TEXTSIZE);
   #else
     display_obj.tft.setFreeFont(MENU_FONT);
     display_obj.tft.setTextSize(KEY_TEXTSIZE);
@@ -64,7 +70,7 @@ uint16_t MenuFunctions::menuLabelMaxOffset(const String& name) {
 
   #ifdef HAS_MINI_SCREEN
     display_obj.tft.setFreeFont(NULL);
-    display_obj.tft.setTextSize(1);
+    display_obj.tft.setTextSize(KEY_TEXTSIZE);
   #else
     display_obj.tft.setFreeFont(MENU_FONT);
     display_obj.tft.setTextSize(KEY_TEXTSIZE);
@@ -1177,8 +1183,45 @@ void MenuFunctions::battery2(bool initial)
 }
 #endif
 
+#ifdef MARAUDER_C5TAKO
+void MenuFunctions::drawC5TakoStatusBar(bool initial) {
+  uint8_t channel = wifi_scan_obj.set_channel;
+  wifi_second_chan_t secondary;
+  uint8_t primary;
+  if (esp_wifi_get_channel(&primary, &secondary) == ESP_OK) channel = primary;
+  const int ram = getDRAMUsagePercent();
+  String status = "CH:" + String(channel) + " RAM:" + String(ram) +
+                  " BAT:" + String(battery_obj.battery_level) + (sd_obj.supported ? " SD" : " --");
+  static String previous;
+  if (!initial && status == previous) return;
+  previous = status;
+  auto& tft = display_obj.tft;
+  const uint8_t size = tft.textsize, font = tft.textfont, datum = tft.textdatum;
+  const uint32_t foreground = tft.textcolor, background = tft.textbgcolor;
+  tft.setFreeFont(NULL);
+  tft.setTextSize(2);
+  tft.setTextDatum(TL_DATUM);
+  tft.fillRect(0, 0, SCREEN_WIDTH, STATUS_BAR_WIDTH, STATUSBAR_COLOR);
+  tft.setTextColor(TFT_WHITE, STATUSBAR_COLOR);
+  // Mini-style fields scaled to 2x, with room for three-digit channels and percentages.
+  tft.drawString("CH:" + String(channel), 4, 0, 1);
+  tft.drawString(String(ram) + "%", 84, 0, 1);
+  tft.drawString(String(battery_obj.battery_level) + "%", 140, 0, 1);
+  tft.setTextColor(sd_obj.supported ? TFT_GREEN : TFT_RED, STATUSBAR_COLOR);
+  tft.drawString("SD", TFT_WIDTH - 28, 0, 1);
+  tft.setTextSize(size);
+  tft.setTextFont(font);
+  tft.setTextDatum(datum);
+  tft.setTextColor(foreground, background);
+}
+#endif
+
 void MenuFunctions::updateStatusBar()
 {
+  #ifdef MARAUDER_C5TAKO
+    drawC5TakoStatusBar(false);
+    return;
+  #endif
   display_obj.tft.setTextSize(1);
 
   bool status_changed = false;
@@ -1374,6 +1417,10 @@ void MenuFunctions::updateStatusBar()
 
 void MenuFunctions::drawStatusBar()
 {
+  #ifdef MARAUDER_C5TAKO
+    drawC5TakoStatusBar(true);
+    return;
+  #endif
   display_obj.tft.setTextSize(1);
   #ifdef HAS_MINI_SCREEN
     display_obj.tft.setFreeFont(NULL);

@@ -368,6 +368,9 @@ void Display::tftDrawColorKey()
 }
 
 void Display::tftDrawXScaleButtons(byte x_scale) {
+  #ifdef MARAUDER_C5TAKO
+    return; // Physical buttons replace touchscreen controls on this carrier.
+  #endif
   tft.drawFastVLine(234, 0, 20, TFT_WHITE);
   tft.setCursor(208, 21); tft.setTextColor(TFT_WHITE); tft.setTextSize(1); tft.print("X Scale:"); tft.print(x_scale);
 
@@ -401,6 +404,9 @@ void Display::tftDrawXScaleButtons(byte x_scale) {
 
 void Display::tftDrawYScaleButtons(byte y_scale)
 {
+  #ifdef MARAUDER_C5TAKO
+    return; // Physical buttons replace touchscreen controls on this carrier.
+  #endif
   tft.drawFastVLine(290, 0, 20, TFT_WHITE);
   tft.setCursor(265, 21); tft.setTextColor(TFT_WHITE); tft.setTextSize(1); tft.print("Y Scale:"); tft.print(y_scale);
 
@@ -433,6 +439,9 @@ void Display::tftDrawYScaleButtons(byte y_scale)
 }
 
 void Display::tftDrawChannelScaleButtons(int set_channel, bool lnd_an) {
+  #ifdef MARAUDER_C5TAKO
+    return; // Physical buttons replace touchscreen controls on this carrier.
+  #endif
   #ifdef MARAUDER_PANCAKE
     TOP_FIXED_AREA_2 = lnd_an ? 48 : 64;
   #endif
@@ -493,6 +502,9 @@ void Display::tftDrawChannelScaleButtons(int set_channel, bool lnd_an) {
 }
 
 void Display::tftDrawChanHopButton(bool lnd_an, bool en) {
+  #ifdef MARAUDER_C5TAKO
+    return; // Physical buttons replace touchscreen controls on this carrier.
+  #endif
   #ifdef MARAUDER_PANCAKE
     TOP_FIXED_AREA_2 = lnd_an ? 48 : 64;
   #endif
@@ -554,6 +566,9 @@ void Display::tftDrawChanHopButton(bool lnd_an, bool en) {
 }
 
 void Display::tftDrawExitScaleButtons(bool lnd_an) {
+  #ifdef MARAUDER_C5TAKO
+    return; // Physical buttons replace touchscreen controls on this carrier.
+  #endif
   #ifdef MARAUDER_PANCAKE
     TOP_FIXED_AREA_2 = lnd_an ? 48 : 64;
   #endif
@@ -722,7 +737,11 @@ void Display::displayBuffer(bool do_clear)
 		  #ifdef MARAUDER_PANCAKE
 			tft.setCursor(xPos, (i * TEXT_HEIGHT) + TOP_FIXED_AREA_2);
 		  #else
-			#ifdef HAS_TOUCH
+            #ifdef MARAUDER_C5TAKO
+              tft.setFreeFont(NULL);
+              tft.setTextSize(1);
+              tft.setCursor(0, TOP_FIXED_AREA + i * TEXT_HEIGHT);
+            #elif defined(HAS_TOUCH)
 			  tft.setCursor(xPos, (i * 12) + ((TFT_HEIGHT / 6) * 1.3));
 			#else
 			  tft.setCursor(xPos, (i * 12) + (TFT_HEIGHT / 6));
@@ -770,18 +789,23 @@ void Display::updateBanner(String msg)
 
 void Display::buildBanner(String msg, int xpos)
 {
-  int h = TEXT_HEIGHT;
+  int h = max(TEXT_HEIGHT, 8 * BANNER_TEXT_SIZE);
 
   #if defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
     int banner_y = STATUS_BAR_WIDTH + 8;
   #else
     int banner_y = STATUS_BAR_WIDTH;
   #endif
-  this->tft.fillRect(0, STATUS_BAR_WIDTH, SCREEN_WIDTH, TEXT_HEIGHT + (banner_y - STATUS_BAR_WIDTH), TFT_BLACK);
+  this->tft.fillRect(0, STATUS_BAR_WIDTH, SCREEN_WIDTH, h + (banner_y - STATUS_BAR_WIDTH), TFT_BLACK);
   this->tft.setFreeFont(NULL);           // Font 4 selected
   this->tft.setTextSize(BANNER_TEXT_SIZE);           // Font size scaling is x1
   this->tft.setTextColor(TFT_WHITE, TFT_BLACK);  // Black text, no background colour
-  this->showCenterText(msg.c_str(), banner_y);
+  #ifdef MARAUDER_C5TAKO
+    this->tft.setTextFont(1);
+    while (msg.length() > 1 && this->tft.textWidth(msg) > SCREEN_WIDTH - 8)
+      msg.remove(msg.length() - 1);
+  #endif
+  this->showCenterText(msg.c_str(), banner_y, false, BANNER_TEXT_SIZE);
 }
 
 #endif

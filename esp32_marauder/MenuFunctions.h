@@ -289,6 +289,9 @@ class MenuFunctions
     String menuLabelWindow(const String& name, uint16_t offset = 0);
     uint16_t menuLabelMaxOffset(const String& name);
     void updateMenuMarquee(uint32_t current_time);
+    #ifdef MARAUDER_C5TAKO
+      void drawC5TakoStatusBar(bool initial);
+    #endif
     #ifdef HAS_MINI_SCREEN
       void drawMiniMenuButton(int b, int x, bool selected, uint16_t text_offset = 0);
     #endif
