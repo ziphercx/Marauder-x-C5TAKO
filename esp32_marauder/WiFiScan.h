@@ -404,16 +404,20 @@ class WiFiScan
     #endif
   
     #if defined(HAS_SCREEN) && (defined(HAS_ILI9341) || \
-        (defined(MARAUDER_MINI_V3) && !defined(DUAL_MINI_C5)) || \
+        (defined(MARAUDER_MINI_V3) && !defined(DUAL_MINI_C5)) || defined(MARAUDER_C5TAKO) || \
         defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV))
       static const uint8_t PACKET_MONITOR_COLUMN_WIDTH = 4;
-      #if defined(MARAUDER_MINI_V3) || defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
+      #if defined(MARAUDER_MINI_V3) || defined(MARAUDER_C5TAKO) || defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
         static const uint8_t PACKET_MONITOR_GRAPH_LEFT = 24;
       #else
         static const uint8_t PACKET_MONITOR_GRAPH_LEFT = 32;
       #endif
       static const uint16_t PACKET_MONITOR_REFRESH_MS = 200;
-      #if defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
+      #if defined(MARAUDER_C5TAKO)
+        // Preserve Mini v3's 128-pixel graph window on the larger panel.
+        static const uint16_t PACKET_MONITOR_HISTORY_LEN = (128 - 24) / 4;
+        static const uint8_t PACKET_MONITOR_COLUMN_STEP = PACKET_MONITOR_COLUMN_WIDTH;
+      #elif defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
         // Match the proven Mini v3 graph's 26-sample time window. The wider
         // Cardputer panel changes only the horizontal spacing, not the data
         // window, sampling cadence, scaling, or bar renderer.

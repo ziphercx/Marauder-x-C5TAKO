@@ -29,11 +29,19 @@ Pin and display definitions live in `esp32_marauder/configs_c5tako.h` and
 USB CDC waiting is bounded so the carrier can boot without a USB host.
 
 The 240x240 layout shows eight menu rows with 2x bitmap text. Titles and the
-16-pixel status bar also use 2x text. Logs and other centered messages use
-1x text; logs start below the title and use sixteen 12-pixel rows. The
-status bar follows the Mini layout: CH, plain DRAM percentage, battery
-percentage, and SD, with spacing adjusted to fit at 2x. Scan titles reuse
-the selected menu label; touchscreen controls are omitted on this carrier.
+16-pixel status bar use 2x bitmap text and the original Mini status colors. Logs
+and other centered messages use 1x text; logs start below the title and use
+sixteen 12-pixel rows. The status bar keeps the Mini GPS indicator conditional:
+it appears only when GPS support is configured and a module responds. This
+carrier has no GPS wiring, so no indicator is shown. Up/Down select menu rows or
+change scan channels, OK selects or exits scans, and Right toggles channel
+hopping in applicable scans. The Mini button keyboard handles SSIDs, passwords,
+and geofence text. Packet
+Monitor and Recon draw the upstream Mini v3 128x128 layout into a sprite, then
+scale it to the 240x240 panel without changing the source colors or positions.
+Recon keeps the C5TAKO status bar at the top. The Packet Monitor key hint is
+hidden because the C5TAKO button mapping differs from Mini v3. Other scan views
+use the shared Mini renderer with the C5TAKO screen geometry.
 Geometry stays in `configs_c5tako.h`; the shared rendering hooks are guarded
 by `MARAUDER_C5TAKO`. Preserve those hooks when merging upstream updates and
 run the build to check the compile-time layout bounds. Upstream changes to

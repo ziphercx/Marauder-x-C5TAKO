@@ -56,6 +56,42 @@ Display::Display()
 {
 }
 
+#ifdef MARAUDER_C5TAKO
+TFT_eSPI& Display::miniCanvas() {
+  if (!mini_canvas.created() && !mini_canvas.createSprite(128, 128)) return tft;
+  return mini_canvas;
+}
+
+void Display::presentMiniCanvas(bool keep_status_bar) {
+  if (!mini_canvas.created()) return;
+  static uint16_t* scaled = nullptr;
+  if (!scaled)
+    scaled = static_cast<uint16_t*>(ps_malloc(SCREEN_WIDTH * SCREEN_HEIGHT * sizeof(uint16_t)));
+  if (!scaled) {
+    if (keep_status_bar)
+      mini_canvas.pushSprite(0, STATUS_BAR_WIDTH, 0, 16, 128, 112);
+    else
+      mini_canvas.pushSprite(0, 0);
+    return;
+  }
+
+  // Nearest-neighbor scale preserves Mini v3's exact palette and drawing.
+  const auto* source = static_cast<const uint16_t*>(mini_canvas.getPointer());
+  const int16_t source_top = keep_status_bar ? 16 : 0;
+  const int16_t output_top = keep_status_bar ? STATUS_BAR_WIDTH : 0;
+  const int16_t output_height = SCREEN_HEIGHT - output_top;
+  for (int16_t y = 0; y < output_height; ++y) {
+    const int16_t source_y = source_top + (y * (128 - source_top)) / output_height;
+    for (int16_t x = 0; x < SCREEN_WIDTH; ++x)
+      scaled[y * SCREEN_WIDTH + x] = source[source_y * 128 + (x * 128) / SCREEN_WIDTH];
+  }
+  const bool swap = tft.getSwapBytes();
+  tft.setSwapBytes(false);  // Sprite pixels already use TFT_eSPI's wire byte order.
+  tft.pushImage(0, output_top, SCREEN_WIDTH, output_height, scaled);
+  tft.setSwapBytes(swap);
+}
+#endif
+
 int8_t Display::menuButton(uint16_t *x, uint16_t *y, bool pressed, bool check_hold) {
   #ifdef HAS_ILI9341
     for (uint8_t b = BUTTON_ARRAY_LEN; b < BUTTON_ARRAY_LEN + 3; b++) {
@@ -368,9 +404,7 @@ void Display::tftDrawColorKey()
 }
 
 void Display::tftDrawXScaleButtons(byte x_scale) {
-  #ifdef MARAUDER_C5TAKO
-    return; // Physical buttons replace touchscreen controls on this carrier.
-  #endif
+  #ifndef MARAUDER_C5TAKO
   tft.drawFastVLine(234, 0, 20, TFT_WHITE);
   tft.setCursor(208, 21); tft.setTextColor(TFT_WHITE); tft.setTextSize(1); tft.print("X Scale:"); tft.print(x_scale);
 
@@ -400,13 +434,12 @@ void Display::tftDrawXScaleButtons(byte x_scale) {
 
   key[X_PLUS_INDEX].drawButton();
   key[X_MINUS_INDEX].drawButton();
+  #endif
 }
 
 void Display::tftDrawYScaleButtons(byte y_scale)
 {
-  #ifdef MARAUDER_C5TAKO
-    return; // Physical buttons replace touchscreen controls on this carrier.
-  #endif
+  #ifndef MARAUDER_C5TAKO
   tft.drawFastVLine(290, 0, 20, TFT_WHITE);
   tft.setCursor(265, 21); tft.setTextColor(TFT_WHITE); tft.setTextSize(1); tft.print("Y Scale:"); tft.print(y_scale);
 
@@ -436,12 +469,11 @@ void Display::tftDrawYScaleButtons(byte y_scale)
 
   key[Y_MINUS_INDEX].drawButton();
   key[Y_PLUS_INDEX].drawButton();
+  #endif
 }
 
 void Display::tftDrawChannelScaleButtons(int set_channel, bool lnd_an) {
-  #ifdef MARAUDER_C5TAKO
-    return; // Physical buttons replace touchscreen controls on this carrier.
-  #endif
+  #ifndef MARAUDER_C5TAKO
   #ifdef MARAUDER_PANCAKE
     TOP_FIXED_AREA_2 = lnd_an ? 48 : 64;
   #endif
@@ -499,12 +531,11 @@ void Display::tftDrawChannelScaleButtons(int set_channel, bool lnd_an) {
 
   key[CHAN_MINUS_INDEX].drawButton();
   key[CHAN_PLUS_INDEX].drawButton();
+  #endif
 }
 
 void Display::tftDrawChanHopButton(bool lnd_an, bool en) {
-  #ifdef MARAUDER_C5TAKO
-    return; // Physical buttons replace touchscreen controls on this carrier.
-  #endif
+  #ifndef MARAUDER_C5TAKO
   #ifdef MARAUDER_PANCAKE
     TOP_FIXED_AREA_2 = lnd_an ? 48 : 64;
   #endif
@@ -563,12 +594,11 @@ void Display::tftDrawChanHopButton(bool lnd_an, bool en) {
   key[CHAN_HOP_INDEX].setLabelDatum(1, 5, MC_DATUM);
 
   key[CHAN_HOP_INDEX].drawButton();
+  #endif
 }
 
 void Display::tftDrawExitScaleButtons(bool lnd_an) {
-  #ifdef MARAUDER_C5TAKO
-    return; // Physical buttons replace touchscreen controls on this carrier.
-  #endif
+  #ifndef MARAUDER_C5TAKO
   #ifdef MARAUDER_PANCAKE
     TOP_FIXED_AREA_2 = lnd_an ? 48 : 64;
   #endif
@@ -605,6 +635,7 @@ void Display::tftDrawExitScaleButtons(bool lnd_an) {
   key[EXIT_BUTTON_INDEX].setLabelDatum(1, 5, MC_DATUM);
 
   key[EXIT_BUTTON_INDEX].drawButton();
+  #endif
 }
 
 void Display::twoPartDisplay(String center_text)

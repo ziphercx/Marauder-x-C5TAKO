@@ -7,11 +7,6 @@
 #include "UploadStreamBuffer.h"
 #include "lang_var.h"
 
-#ifdef MARAUDER_C5TAKO
-  #include "MenuFunctions.h"
-  extern MenuFunctions menu_function_obj;
-#endif
-
 #ifdef HAS_PSRAM
   struct mac_addr* mac_history = nullptr;
 #endif
@@ -2793,14 +2788,6 @@ void WiFiScan::StartScan(uint8_t scan_mode, uint16_t color) {
   }
 
   this->currentScanMode = scan_mode;
-  #ifdef MARAUDER_C5TAKO
-    // Mini mode omits the upstream touchscreen-only titles. Use the selected menu label.
-    auto* menu = menu_function_obj.current_menu;
-    if (scan_mode != WIFI_SCAN_OFF && scan_mode != WIFI_PACKET_MONITOR &&
-        menu && menu->list && menu->selected < menu->list->size()) {
-      display_obj.updateBanner(menu->list->get(menu->selected).name);
-    }
-  #endif
 }
 
 void WiFiScan::setLEDMode(int mode) {
@@ -4849,13 +4836,13 @@ void WiFiScan::RunPacketMonitor(uint8_t scan_mode, uint16_t color) {
 
   // GCOVR_EXCL_START -- Packet Monitor presentation requires a hardware TFT.
   #if defined(HAS_SCREEN) && (defined(HAS_ILI9341) || \
-      (defined(MARAUDER_MINI_V3) && !defined(DUAL_MINI_C5)) || \
+      (defined(MARAUDER_MINI_V3) && !defined(DUAL_MINI_C5)) || defined(MARAUDER_C5TAKO) || \
       defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV))
     if (scan_mode == WIFI_PACKET_MONITOR)
       this->resetPacketMonitorGraph();
   #endif
 
-  #if (defined(MARAUDER_MINI_V3) && !defined(DUAL_MINI_C5)) || \
+  #if (defined(MARAUDER_MINI_V3) && !defined(DUAL_MINI_C5)) || defined(MARAUDER_C5TAKO) || \
       defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
     if (scan_mode == WIFI_PACKET_MONITOR) {
       display_obj.init();
@@ -4863,6 +4850,9 @@ void WiFiScan::RunPacketMonitor(uint8_t scan_mode, uint16_t color) {
       display_obj.tft.fillScreen(TFT_BLACK);
       display_obj.tft.setFreeFont(NULL);
       display_obj.tft.setTextSize(1);
+      #ifdef MARAUDER_C5TAKO
+        display_obj.miniCanvas().fillScreen(TFT_BLACK);
+      #endif
       this->drawPacketMonitorControls();
       this->drawPacketMonitorGraphs();
     }
@@ -9880,7 +9870,7 @@ void WiFiScan::wifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) 
 
       // If we dont the buffer size is not 0, don't write or else we get CORRUPT_HEAP
       #ifdef HAS_SCREEN
-        #if defined(HAS_ILI9341) || (defined(MARAUDER_MINI_V3) && !defined(DUAL_MINI_C5)) || \
+        #if defined(HAS_ILI9341) || (defined(MARAUDER_MINI_V3) && !defined(DUAL_MINI_C5)) || defined(MARAUDER_C5TAKO) || \
             defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV) // GCOVR_EXCL_LINE
           if (snifferPacket->payload[0] == 0x80) // GCOVR_EXCL_LINE -- requires live WiFi capture.
           {
@@ -9908,7 +9898,7 @@ void WiFiScan::wifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) 
     }
     else {
       #ifdef HAS_SCREEN
-        #if !defined(HAS_ILI9341) && !(defined(MARAUDER_MINI_V3) && !defined(DUAL_MINI_C5)) && \
+        #if !defined(HAS_ILI9341) && !(defined(MARAUDER_MINI_V3) && !defined(DUAL_MINI_C5)) && !defined(MARAUDER_C5TAKO) && \
             !defined(MARAUDER_CARDPUTER) && !defined(MARAUDER_CARDPUTER_ADV) // GCOVR_EXCL_LINE
           display_string.concat(";wht;");
         #endif
@@ -9929,7 +9919,7 @@ void WiFiScan::wifiSnifferCallback(void* buf, wifi_promiscuous_pkt_type_t type) 
       }
         
       #ifdef SCREEN_BUFFER
-        #if !defined(HAS_ILI9341) && !(defined(MARAUDER_MINI_V3) && !defined(DUAL_MINI_C5)) && \
+        #if !defined(HAS_ILI9341) && !(defined(MARAUDER_MINI_V3) && !defined(DUAL_MINI_C5)) && !defined(MARAUDER_C5TAKO) && \
             !defined(MARAUDER_CARDPUTER) && !defined(MARAUDER_CARDPUTER_ADV) // GCOVR_EXCL_LINE
           if (display_obj.display_buffer->size() >= 10)
             return;
@@ -10381,7 +10371,7 @@ bool WiFiScan::filterActive() {
 #endif
 
 #ifdef HAS_SCREEN
-  #if defined(HAS_ILI9341) || (defined(MARAUDER_MINI_V3) && !defined(DUAL_MINI_C5)) || \
+  #if defined(HAS_ILI9341) || (defined(MARAUDER_MINI_V3) && !defined(DUAL_MINI_C5)) || defined(MARAUDER_C5TAKO) || \
       defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
     void WiFiScan::resetPacketMonitorGraph() {
       memset(packet_monitor_beacons, 0, sizeof(packet_monitor_beacons));
@@ -10412,7 +10402,17 @@ bool WiFiScan::filterActive() {
     void WiFiScan::drawPacketMonitorGraph(const uint16_t *values, int16_t top,
                                           int16_t bottom, uint16_t color,
                                           const char *label) {
-      #if defined(MARAUDER_MINI_V3) || defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
+      #ifdef MARAUDER_C5TAKO
+        TFT_eSPI& mini_tft = display_obj.miniCanvas();
+      #else
+        TFT_eSPI& mini_tft = display_obj.tft;
+      #endif
+      #ifdef MARAUDER_C5TAKO
+        constexpr int16_t graph_width = 128;
+      #else
+        constexpr int16_t graph_width = SCREEN_WIDTH;
+      #endif
+      #if defined(MARAUDER_MINI_V3) || defined(MARAUDER_C5TAKO) || defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
         const int16_t plot_top = top + 10;
       #else
         const int16_t plot_top = top + 12;
@@ -10422,7 +10422,7 @@ bool WiFiScan::filterActive() {
       for (uint16_t i = 0; i < PACKET_MONITOR_HISTORY_LEN; i++)
         max_value = max(max_value, values[i]);
 
-      display_obj.tft.fillRect(0, top, SCREEN_WIDTH, bottom - top + 1, TFT_BLACK);
+      mini_tft.fillRect(0, top, graph_width, bottom - top + 1, TFT_BLACK);
       #if defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
         // The rotated Cardputer ST7789 path can leave pixels from a taller
         // rendering behind when the history shifts. Explicitly erase every
@@ -10431,92 +10431,113 @@ bool WiFiScan::filterActive() {
         for (uint16_t i = 0; i < PACKET_MONITOR_HISTORY_LEN; i++) {
           const int16_t x = PACKET_MONITOR_GRAPH_LEFT +
               (i * PACKET_MONITOR_COLUMN_STEP);
-          display_obj.tft.fillRect(x, plot_top, PACKET_MONITOR_COLUMN_STEP,
+          mini_tft.fillRect(x, plot_top, PACKET_MONITOR_COLUMN_STEP,
                                    graph_height + 1, TFT_BLACK);
         }
         const int16_t cleared_width =
             PACKET_MONITOR_HISTORY_LEN * PACKET_MONITOR_COLUMN_STEP;
-        if (PACKET_MONITOR_GRAPH_LEFT + cleared_width < SCREEN_WIDTH) {
-          display_obj.tft.fillRect(PACKET_MONITOR_GRAPH_LEFT + cleared_width,
+        if (PACKET_MONITOR_GRAPH_LEFT + cleared_width < graph_width) {
+          mini_tft.fillRect(PACKET_MONITOR_GRAPH_LEFT + cleared_width,
                                    plot_top,
-                                   SCREEN_WIDTH - PACKET_MONITOR_GRAPH_LEFT -
+                                   graph_width - PACKET_MONITOR_GRAPH_LEFT -
                                        cleared_width,
                                    graph_height + 1, TFT_BLACK);
         }
       #endif
-      display_obj.tft.setTextColor(color, TFT_BLACK);
-      display_obj.tft.setTextSize(1);
-      display_obj.tft.setCursor(2, top + 2);
-      display_obj.tft.print(label);
+      mini_tft.setTextColor(color, TFT_BLACK);
+      mini_tft.setTextSize(1);
+      mini_tft.setCursor(2, top + 2);
+      mini_tft.print(label);
 
       const int16_t half_y = bottom - (graph_height / 2);
-      display_obj.tft.drawFastHLine(PACKET_MONITOR_GRAPH_LEFT, plot_top,
-                                    SCREEN_WIDTH - PACKET_MONITOR_GRAPH_LEFT, TFT_DARKGREY);
-      display_obj.tft.drawFastHLine(PACKET_MONITOR_GRAPH_LEFT, half_y,
-                                    SCREEN_WIDTH - PACKET_MONITOR_GRAPH_LEFT, TFT_DARKGREY);
-      display_obj.tft.drawFastHLine(PACKET_MONITOR_GRAPH_LEFT, bottom,
-                                    SCREEN_WIDTH - PACKET_MONITOR_GRAPH_LEFT, TFT_LIGHTGREY);
-      display_obj.tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
-      display_obj.tft.setCursor(2, plot_top);
-      display_obj.tft.print(max_value);
-      display_obj.tft.setCursor(2, half_y - 4);
-      display_obj.tft.print((max_value + 1) / 2);
+      mini_tft.drawFastHLine(PACKET_MONITOR_GRAPH_LEFT, plot_top,
+                                    graph_width - PACKET_MONITOR_GRAPH_LEFT, TFT_DARKGREY);
+      mini_tft.drawFastHLine(PACKET_MONITOR_GRAPH_LEFT, half_y,
+                                    graph_width - PACKET_MONITOR_GRAPH_LEFT, TFT_DARKGREY);
+      mini_tft.drawFastHLine(PACKET_MONITOR_GRAPH_LEFT, bottom,
+                                    graph_width - PACKET_MONITOR_GRAPH_LEFT, TFT_LIGHTGREY);
+      mini_tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+      mini_tft.setCursor(2, plot_top);
+      mini_tft.print(max_value);
+      mini_tft.setCursor(2, half_y - 4);
+      mini_tft.print((max_value + 1) / 2);
 
       for (uint16_t i = 0; i < PACKET_MONITOR_HISTORY_LEN; i++) {
         const int16_t x = PACKET_MONITOR_GRAPH_LEFT + (i * PACKET_MONITOR_COLUMN_STEP);
         const int16_t height = ((uint32_t)values[i] * graph_height) / max_value;
         if (height > 0)
-          display_obj.tft.fillRect(x, bottom - height, PACKET_MONITOR_COLUMN_WIDTH,
+          mini_tft.fillRect(x, bottom - height, PACKET_MONITOR_COLUMN_WIDTH,
                                    height, color);
       }
     }
 
     void WiFiScan::drawPacketMonitorGraphs() {
-      #if defined(MARAUDER_MINI_V3) || defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
+      #ifdef MARAUDER_C5TAKO
+        constexpr int16_t graph_screen_height = 128;
+      #else
+        constexpr int16_t graph_screen_height = SCREEN_HEIGHT;
+      #endif
+      #if defined(MARAUDER_MINI_V3) || defined(MARAUDER_C5TAKO) || defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
         const int16_t graph_top = 28;
       #else
         const int16_t graph_top = 64;
       #endif
-      const int16_t lane_height = (SCREEN_HEIGHT - graph_top) / 3;
+      const int16_t lane_height = (graph_screen_height - graph_top) / 3;
       drawPacketMonitorGraph(packet_monitor_beacons, graph_top,
                              graph_top + lane_height - 1, TFT_GREEN, "BCN");
       drawPacketMonitorGraph(packet_monitor_deauths, graph_top + lane_height,
                              graph_top + (lane_height * 2) - 1, TFT_RED, "DEA");
       drawPacketMonitorGraph(packet_monitor_probes, graph_top + (lane_height * 2),
-                             SCREEN_HEIGHT - 1, TFT_BLUE, "PRB");
+                             graph_screen_height - 1, TFT_BLUE, "PRB");
+      #ifdef MARAUDER_C5TAKO
+        display_obj.presentMiniCanvas();
+      #endif
     }
 
     void WiFiScan::drawPacketMonitorControls() {
-      #if defined(MARAUDER_MINI_V3) || defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
-        display_obj.tft.fillRect(0, 0, SCREEN_WIDTH, 28, TFT_BLACK);
+      #ifdef MARAUDER_C5TAKO
+        TFT_eSPI& mini_tft = display_obj.miniCanvas();
       #else
-        display_obj.tft.fillRect(0, 0, SCREEN_WIDTH, 64, TFT_BLACK);
+        TFT_eSPI& mini_tft = display_obj.tft;
       #endif
-      display_obj.tft.setTextColor(TFT_WHITE, TFT_BLACK);
-      #if defined(MARAUDER_MINI_V3) || defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
-        display_obj.tft.drawCentreString(text_table1[45], SCREEN_WIDTH / 2, 0, 1);
+      #ifdef MARAUDER_C5TAKO
+        constexpr int16_t graph_screen_width = 128;
       #else
-        display_obj.tft.drawCentreString(text_table1[45], SCREEN_WIDTH / 2, 0, 2);
+        constexpr int16_t graph_screen_width = SCREEN_WIDTH;
+      #endif
+      #if defined(MARAUDER_MINI_V3) || defined(MARAUDER_C5TAKO) || defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
+        mini_tft.fillRect(0, 0, graph_screen_width, 28, TFT_BLACK);
+      #else
+        mini_tft.fillRect(0, 0, graph_screen_width, 64, TFT_BLACK);
+      #endif
+      mini_tft.setTextColor(TFT_WHITE, TFT_BLACK);
+      #if defined(MARAUDER_MINI_V3) || defined(MARAUDER_C5TAKO) || defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
+        mini_tft.drawCentreString(text_table1[45], graph_screen_width / 2, 0, 1);
+      #else
+        mini_tft.drawCentreString(text_table1[45], graph_screen_width / 2, 0, 2);
         display_obj.tftDrawChannelScaleButtons(set_channel, false);
         display_obj.tftDrawExitScaleButtons(false);
       #endif
-      display_obj.tft.setTextColor(TFT_WHITE, TFT_BLACK);
-      display_obj.tft.drawCentreString(String("CH ") + set_channel,
-                                       SCREEN_WIDTH / 2,
-                                       #if defined(MARAUDER_MINI_V3) || defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
+      mini_tft.setTextColor(TFT_WHITE, TFT_BLACK);
+      mini_tft.drawCentreString(String("CH ") + set_channel,
+                                       graph_screen_width / 2,
+                                       #if defined(MARAUDER_MINI_V3) || defined(MARAUDER_C5TAKO) || defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
                                          10,
                                        #else
                                          18,
                                        #endif
                                        1);
       #if defined(MARAUDER_MINI_V3) || defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
-        display_obj.tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
-        display_obj.tft.drawCentreString("UP/DN CH  L EXIT", SCREEN_WIDTH / 2, 19, 1);
+        mini_tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+        mini_tft.drawCentreString("UP/DN CH  L EXIT", SCREEN_WIDTH / 2, 19, 1);
+      #endif
+      #ifdef MARAUDER_C5TAKO
+        display_obj.presentMiniCanvas();
       #endif
     }
   #endif
 
-  #if defined(HAS_ILI9341) || (defined(MARAUDER_MINI_V3) && !defined(DUAL_MINI_C5)) || \
+  #if defined(HAS_ILI9341) || (defined(MARAUDER_MINI_V3) && !defined(DUAL_MINI_C5)) || defined(MARAUDER_C5TAKO) || \
       defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
   void WiFiScan::packetMonitorMain(uint32_t currentTime) {
     #ifdef HAS_ILI9341
@@ -10579,7 +10600,7 @@ void WiFiScan::changeChannel(int chan) {
   esp_wifi_set_channel(this->set_channel, WIFI_SECOND_CHAN_NONE);
   delay(1);
   #ifdef HAS_SCREEN
-    #if defined(HAS_ILI9341) || (defined(MARAUDER_MINI_V3) && !defined(DUAL_MINI_C5)) || \
+    #if defined(HAS_ILI9341) || (defined(MARAUDER_MINI_V3) && !defined(DUAL_MINI_C5)) || defined(MARAUDER_C5TAKO) || \
         defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV) // GCOVR_EXCL_LINE
       if (this->currentScanMode == WIFI_PACKET_MONITOR) // GCOVR_EXCL_LINE -- requires a hardware TFT.
         this->drawPacketMonitorControls(); // GCOVR_EXCL_LINE
@@ -12598,7 +12619,7 @@ void WiFiScan::main(uint32_t currentTime)
   else if (currentScanMode == WIFI_PACKET_MONITOR)
   {
     #ifdef HAS_SCREEN
-      #if defined(HAS_ILI9341) || (defined(MARAUDER_MINI_V3) && !defined(DUAL_MINI_C5)) || \
+      #if defined(HAS_ILI9341) || (defined(MARAUDER_MINI_V3) && !defined(DUAL_MINI_C5)) || defined(MARAUDER_C5TAKO) || \
           defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV) // GCOVR_EXCL_LINE
         packetMonitorMain(currentTime);
       #endif

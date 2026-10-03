@@ -101,6 +101,11 @@ class Display
   public:
     Display();
     TFT_eSPI tft = TFT_eSPI();
+    #ifdef MARAUDER_C5TAKO
+      TFT_eSprite mini_canvas{&tft};
+      TFT_eSPI& miniCanvas();
+      void presentMiniCanvas(bool keep_status_bar = false);
+    #endif
     TFT_eSPI_Button key[BUTTON_ARRAY_LEN + 4];
     const String PROGMEM version_number = MARAUDER_VERSION;
 

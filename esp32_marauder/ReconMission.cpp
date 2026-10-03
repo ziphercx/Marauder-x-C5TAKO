@@ -157,6 +157,10 @@ bool ReconMission::start(ReconMode mode) {
 
   running = true;
   writeManifest(false);
+  #ifdef MARAUDER_C5TAKO
+    TFT_eSPI& canvas = display_obj.miniCanvas();
+    if (&canvas != &display_obj.tft) canvas.fillScreen(TFT_BLACK);
+  #endif
   drawDashboard(started_at);
   return true;
 }
@@ -520,7 +524,11 @@ void ReconMission::writeManifest(bool complete) {
 }
 
 // GCOVR_EXCL_START -- Recon dashboard rendering requires a hardware TFT.
-#if defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
+#if defined(MARAUDER_C5TAKO)
+  // Keep the upstream Mini v3 dashboard layout when using the 240x240 panel.
+  #define RECON_SCREEN_WIDTH 128
+  #define RECON_SCREEN_HEIGHT 128
+#elif defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
   #define RECON_SCREEN_WIDTH SCREEN_WIDTH
   #define RECON_SCREEN_HEIGHT SCREEN_HEIGHT
 #else
@@ -531,6 +539,11 @@ void ReconMission::drawDashboard(uint32_t current_time) {
   #ifdef HAS_SCREEN
     if (last_dashboard && current_time - last_dashboard < 1000) return;
     last_dashboard = current_time;
+    #ifdef MARAUDER_C5TAKO
+      TFT_eSPI& mini_tft = display_obj.miniCanvas();
+    #else
+      TFT_eSPI& mini_tft = display_obj.tft;
+    #endif
     const uint8_t churn_in = pending_churn_in > UINT8_MAX ? UINT8_MAX : pending_churn_in;
     const uint8_t churn_out = pending_churn_out > UINT8_MAX ? UINT8_MAX : pending_churn_out;
     if (churn_history_count < sizeof(churn_in_history)) {
@@ -582,12 +595,12 @@ void ReconMission::drawDashboard(uint32_t current_time) {
       #endif
     }
     const uint16_t color = active_mode == ReconMode::WIFI_RECON ? TFT_MAGENTA : TFT_CYAN;
-    display_obj.tft.fillRect(0, 16, RECON_SCREEN_WIDTH, 16, color);
-    display_obj.tft.fillCircle(7, 24, 3, TFT_RED);
-    display_obj.tft.setFreeFont(NULL);
-    display_obj.tft.setTextSize(1);
-    display_obj.tft.setTextColor(TFT_BLACK, color);
-    display_obj.tft.drawCentreString(status, (RECON_SCREEN_WIDTH / 2) + 4, 20, 1);
+    mini_tft.fillRect(0, 16, RECON_SCREEN_WIDTH, 16, color);
+    mini_tft.fillCircle(7, 24, 3, TFT_RED);
+    mini_tft.setFreeFont(NULL);
+    mini_tft.setTextSize(1);
+    mini_tft.setTextColor(TFT_BLACK, color);
+    mini_tft.drawCentreString(status, (RECON_SCREEN_WIDTH / 2) + 4, 20, 1);
     while (display_obj.display_buffer->size()) display_obj.display_buffer->shift();
     #ifdef SCREEN_BUFFER
       while (display_obj.screen_buffer->size()) display_obj.screen_buffer->shift();
@@ -598,7 +611,7 @@ void ReconMission::drawDashboard(uint32_t current_time) {
     #else
       const int16_t body_top = 48;
     #endif
-    display_obj.tft.fillRect(0, body_top, RECON_SCREEN_WIDTH, RECON_SCREEN_HEIGHT - body_top, TFT_BLACK);
+    mini_tft.fillRect(0, body_top, RECON_SCREEN_WIDTH, RECON_SCREEN_HEIGHT - body_top, TFT_BLACK);
     #if RECON_SCREEN_HEIGHT < 160
       const int16_t graph_x = 4;
       const int16_t graph_y = body_top + 2;
@@ -615,18 +628,18 @@ void ReconMission::drawDashboard(uint32_t current_time) {
       const int16_t graph_width = 92;
       const int16_t graph_height = 88;
     #endif
-    display_obj.tft.drawRect(graph_x, graph_y, graph_width, graph_height, TFT_DARKGREY);
-    display_obj.tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+    mini_tft.drawRect(graph_x, graph_y, graph_width, graph_height, TFT_DARKGREY);
+    mini_tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
     char churn_label[10];
     #if RECON_SCREEN_HEIGHT < 160
-      display_obj.tft.drawString("C", graph_x + 3, graph_y + 3, 1);
+      mini_tft.drawString("C", graph_x + 3, graph_y + 3, 1);
       snprintf(churn_label, sizeof(churn_label), "+%u-%u", churn_in, churn_out);
     #else
-      display_obj.tft.drawString("CHURN", graph_x + 3, graph_y + 3, 1);
+      mini_tft.drawString("CHURN", graph_x + 3, graph_y + 3, 1);
       snprintf(churn_label, sizeof(churn_label), "+%u -%u", churn_in, churn_out);
     #endif
-    display_obj.tft.setTextColor(churn_in ? TFT_CYAN : TFT_DARKGREY, TFT_BLACK);
-    display_obj.tft.drawRightString(churn_label, graph_x + graph_width - 3, graph_y + 3, 1);
+    mini_tft.setTextColor(churn_in ? TFT_CYAN : TFT_DARKGREY, TFT_BLACK);
+    mini_tft.drawRightString(churn_label, graph_x + graph_width - 3, graph_y + 3, 1);
     #if RECON_SCREEN_WIDTH >= 200 && RECON_SCREEN_HEIGHT >= 160
       const int16_t plot_left = graph_x + 20;
       const int16_t plot_width = graph_width - 23;
@@ -637,7 +650,7 @@ void ReconMission::drawDashboard(uint32_t current_time) {
     const int16_t plot_top = graph_y + 15;
     const int16_t plot_height = graph_height - 29;
     for (uint8_t grid = 1; grid < 3; grid++)
-      display_obj.tft.drawFastHLine(plot_left, plot_top + (plot_height * grid) / 3,
+      mini_tft.drawFastHLine(plot_left, plot_top + (plot_height * grid) / 3,
                                    plot_width, TFT_DARKGREY);
     const uint8_t sample_slots = plot_width / 3;
     const uint8_t visible_samples = churn_history_count < sample_slots
@@ -652,13 +665,13 @@ void ReconMission::drawDashboard(uint32_t current_time) {
     }
     #if RECON_SCREEN_WIDTH >= 200 && RECON_SCREEN_HEIGHT >= 160
       char scale_label[4];
-      display_obj.tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+      mini_tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
       snprintf(scale_label, sizeof(scale_label), "%u", peak);
-      display_obj.tft.drawRightString(scale_label, plot_left - 3, plot_top - 3, 1);
+      mini_tft.drawRightString(scale_label, plot_left - 3, plot_top - 3, 1);
       snprintf(scale_label, sizeof(scale_label), "%u", (peak + 1) / 2);
-      display_obj.tft.drawRightString(scale_label, plot_left - 3,
+      mini_tft.drawRightString(scale_label, plot_left - 3,
                                       plot_top + plot_height / 2 - 3, 1);
-      display_obj.tft.drawRightString("0", plot_left - 3,
+      mini_tft.drawRightString("0", plot_left - 3,
                                       plot_top + plot_height - 7, 1);
     #endif
     for (uint8_t sample = 0; sample < visible_samples; sample++) {
@@ -667,9 +680,9 @@ void ReconMission::drawDashboard(uint32_t current_time) {
       const uint8_t in_height = reconChurnHeight(churn_in_history[index], peak, plot_height);
       const uint8_t out_height = reconChurnHeight(churn_out_history[index], peak, plot_height);
       if (in_height)
-        display_obj.tft.drawFastHLine(x, plot_top + plot_height - in_height, 2, TFT_CYAN);
+        mini_tft.drawFastHLine(x, plot_top + plot_height - in_height, 2, TFT_CYAN);
       if (out_height)
-        display_obj.tft.drawFastHLine(x, plot_top + plot_height - out_height, 2, TFT_ORANGE);
+        mini_tft.drawFastHLine(x, plot_top + plot_height - out_height, 2, TFT_ORANGE);
     }
     const uint32_t band_total = band_24_observations + band_5_observations;
     const uint8_t band_24_percent = band_total
@@ -680,35 +693,35 @@ void ReconMission::drawDashboard(uint32_t current_time) {
     snprintf(band_label, sizeof(band_label), "2G%u 5G%u", band_24_percent, band_5_percent);
     #if RECON_SCREEN_HEIGHT >= 160
       if (active_mode == ReconMode::WIFI_RECON) {
-        display_obj.tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        display_obj.tft.drawCentreString(band_label, graph_x + graph_width / 2,
+        mini_tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+        mini_tft.drawCentreString(band_label, graph_x + graph_width / 2,
                                          graph_y + graph_height - 12, 1);
       }
     #endif
 
-    display_obj.tft.setTextSize(1);
-    display_obj.tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    mini_tft.setTextSize(1);
+    mini_tft.setTextColor(TFT_WHITE, TFT_BLACK);
     char line[34];
     #if RECON_SCREEN_HEIGHT < 160
       const int16_t stats_x = 63;
       if (active_mode == ReconMode::WIFI_RECON) {
         snprintf(line, sizeof(line), "AP  %lu", (unsigned long)ap_count);
-        display_obj.tft.drawString(line, stats_x, body_top + 2, 1);
+        mini_tft.drawString(line, stats_x, body_top + 2, 1);
         snprintf(line, sizeof(line), "STA %lu", (unsigned long)station_count);
-        display_obj.tft.drawString(line, stats_x, body_top + 14, 1);
+        mini_tft.drawString(line, stats_x, body_top + 14, 1);
         snprintf(line, sizeof(line), "PRB %lu", (unsigned long)probe_count);
-        display_obj.tft.drawString(line, stats_x, body_top + 26, 1);
+        mini_tft.drawString(line, stats_x, body_top + 26, 1);
         snprintf(line, sizeof(line), "UPD %lu", (unsigned long)repeat_count);
-        display_obj.tft.drawString(line, stats_x, body_top + 38, 1);
+        mini_tft.drawString(line, stats_x, body_top + 38, 1);
         const bool deauth_active = last_deauth && current_time - last_deauth < RECON_DEAUTH_ALERT_MS;
         snprintf(line, sizeof(line), "D!  %lu", (unsigned long)deauth_count);
-        display_obj.tft.setTextColor(deauth_active ? TFT_RED : TFT_DARKGREY, TFT_BLACK);
-        display_obj.tft.drawString(line, stats_x, body_top + 50, 1);
+        mini_tft.setTextColor(deauth_active ? TFT_RED : TFT_DARKGREY, TFT_BLACK);
+        mini_tft.drawString(line, stats_x, body_top + 50, 1);
       } else {
         snprintf(line, sizeof(line), "BLE %lu", (unsigned long)ble_count);
-        display_obj.tft.drawString(line, stats_x, body_top + 14, 1);
+        mini_tft.drawString(line, stats_x, body_top + 14, 1);
         snprintf(line, sizeof(line), "UPD %lu", (unsigned long)repeat_count);
-        display_obj.tft.drawString(line, stats_x, body_top + 32, 1);
+        mini_tft.drawString(line, stats_x, body_top + 32, 1);
       }
     #elif RECON_SCREEN_WIDTH < 200
       if (active_mode == ReconMode::WIFI_RECON)
@@ -716,48 +729,48 @@ void ReconMission::drawDashboard(uint32_t current_time) {
                  (unsigned long)station_count);
       else
         snprintf(line, sizeof(line), "BLE DEVICES %lu", (unsigned long)ble_count);
-      display_obj.tft.drawCentreString(line, RECON_SCREEN_WIDTH / 2, body_top + 96, 1);
+      mini_tft.drawCentreString(line, RECON_SCREEN_WIDTH / 2, body_top + 96, 1);
       if (active_mode == ReconMode::WIFI_RECON)
         snprintf(line, sizeof(line), "PROBE %lu  UPDATE %lu", (unsigned long)probe_count,
                  (unsigned long)repeat_count);
       else
         snprintf(line, sizeof(line), "UPDATE %lu", (unsigned long)repeat_count);
-      display_obj.tft.drawCentreString(line, RECON_SCREEN_WIDTH / 2, body_top + 110, 1);
+      mini_tft.drawCentreString(line, RECON_SCREEN_WIDTH / 2, body_top + 110, 1);
       if (active_mode == ReconMode::WIFI_RECON) {
         const bool deauth_active = last_deauth && current_time - last_deauth < RECON_DEAUTH_ALERT_MS;
         snprintf(line, sizeof(line), "DEAUTH %lu", (unsigned long)deauth_count);
-        display_obj.tft.setTextColor(deauth_active ? TFT_RED : TFT_DARKGREY, TFT_BLACK);
-        display_obj.tft.drawCentreString(line, RECON_SCREEN_WIDTH / 2, body_top + 124, 1);
+        mini_tft.setTextColor(deauth_active ? TFT_RED : TFT_DARKGREY, TFT_BLACK);
+        mini_tft.drawCentreString(line, RECON_SCREEN_WIDTH / 2, body_top + 124, 1);
       }
     #else
       const int16_t stats_x = 108;
-      display_obj.tft.setTextColor(TFT_MAGENTA, TFT_BLACK);
-      display_obj.tft.drawString("LIVE ACTIVITY", stats_x, body_top + 9, 1);
-      display_obj.tft.setTextColor(TFT_WHITE, TFT_BLACK);
+      mini_tft.setTextColor(TFT_MAGENTA, TFT_BLACK);
+      mini_tft.drawString("LIVE ACTIVITY", stats_x, body_top + 9, 1);
+      mini_tft.setTextColor(TFT_WHITE, TFT_BLACK);
       if (active_mode == ReconMode::WIFI_RECON) {
         snprintf(line, sizeof(line), "AP       %lu", (unsigned long)ap_count);
-        display_obj.tft.drawString(line, stats_x, body_top + 28, 1);
+        mini_tft.drawString(line, stats_x, body_top + 28, 1);
         snprintf(line, sizeof(line), "STATION  %lu", (unsigned long)station_count);
-        display_obj.tft.drawString(line, stats_x, body_top + 42, 1);
+        mini_tft.drawString(line, stats_x, body_top + 42, 1);
         snprintf(line, sizeof(line), "PROBE    %lu", (unsigned long)probe_count);
-        display_obj.tft.drawString(line, stats_x, body_top + 56, 1);
+        mini_tft.drawString(line, stats_x, body_top + 56, 1);
         snprintf(line, sizeof(line), "UPDATE   %lu", (unsigned long)repeat_count);
-        display_obj.tft.drawString(line, stats_x, body_top + 70, 1);
+        mini_tft.drawString(line, stats_x, body_top + 70, 1);
         const bool deauth_active = last_deauth && current_time - last_deauth < RECON_DEAUTH_ALERT_MS;
         snprintf(line, sizeof(line), "DEAUTH   %lu", (unsigned long)deauth_count);
-        display_obj.tft.setTextColor(deauth_active ? TFT_RED : TFT_DARKGREY, TFT_BLACK);
-        display_obj.tft.drawString(line, stats_x, body_top + 84, 1);
+        mini_tft.setTextColor(deauth_active ? TFT_RED : TFT_DARKGREY, TFT_BLACK);
+        mini_tft.drawString(line, stats_x, body_top + 84, 1);
       } else {
         snprintf(line, sizeof(line), "BLE DEVICE  %lu", (unsigned long)ble_count);
-        display_obj.tft.drawString(line, stats_x, body_top + 35, 1);
+        mini_tft.drawString(line, stats_x, body_top + 35, 1);
         snprintf(line, sizeof(line), "UPDATE      %lu", (unsigned long)repeat_count);
-        display_obj.tft.drawString(line, stats_x, body_top + 55, 1);
+        mini_tft.drawString(line, stats_x, body_top + 55, 1);
       }
     #endif
 
     #if RECON_SCREEN_HEIGHT < 160
       const int16_t event_y = RECON_SCREEN_HEIGHT - 10;
-      display_obj.tft.drawFastHLine(4, event_y - 5, RECON_SCREEN_WIDTH - 8, TFT_DARKGREY);
+      mini_tft.drawFastHLine(4, event_y - 5, RECON_SCREEN_WIDTH - 8, TFT_DARKGREY);
       if (active_mode == ReconMode::WIFI_RECON && ui_relationship_head) {
         const UiRelationship& relationship =
             ui_relationships[(ui_relationship_head + 2) % 3];
@@ -765,8 +778,8 @@ void ReconMission::drawDashboard(uint32_t current_time) {
         reconTruncate(relationship.ap_name, ap_name, sizeof(ap_name));
         snprintf(line, sizeof(line), "%02X:%02X>%s", relationship.station[4],
                  relationship.station[5], ap_name);
-        display_obj.tft.setTextColor(TFT_CYAN, TFT_BLACK);
-        display_obj.tft.drawCentreString(line, RECON_SCREEN_WIDTH / 2, event_y, 1);
+        mini_tft.setTextColor(TFT_CYAN, TFT_BLACK);
+        mini_tft.drawCentreString(line, RECON_SCREEN_WIDTH / 2, event_y, 1);
       } else {
         const UiEvent& latest = ui_events[(ui_event_head + 3) % 4];
         if (latest.type == 'p') snprintf(line, sizeof(line), "PRB %.10s", latest.label);
@@ -776,16 +789,16 @@ void ReconMission::drawDashboard(uint32_t current_time) {
         else if (latest.type) snprintf(line, sizeof(line), "%c %02X:%02X:%02X",
                                        latest.type, latest.mac[3], latest.mac[4], latest.mac[5]);
         else snprintf(line, sizeof(line), "Waiting...");
-        display_obj.tft.setTextColor(latest.type == 'd' ? TFT_RED : TFT_LIGHTGREY, TFT_BLACK);
-        display_obj.tft.drawCentreString(line, RECON_SCREEN_WIDTH / 2, event_y, 1);
+        mini_tft.setTextColor(latest.type == 'd' ? TFT_RED : TFT_LIGHTGREY, TFT_BLACK);
+        mini_tft.drawCentreString(line, RECON_SCREEN_WIDTH / 2, event_y, 1);
       }
     #else
       #if RECON_SCREEN_WIDTH >= 200
         const int16_t relation_y = body_top + 112;
-        display_obj.tft.drawFastHLine(6, relation_y - 6, RECON_SCREEN_WIDTH - 12, TFT_DARKGREY);
-        display_obj.tft.setTextColor(active_mode == ReconMode::WIFI_RECON
+        mini_tft.drawFastHLine(6, relation_y - 6, RECON_SCREEN_WIDTH - 12, TFT_DARKGREY);
+        mini_tft.setTextColor(active_mode == ReconMode::WIFI_RECON
                                        ? TFT_MAGENTA : TFT_CYAN, TFT_BLACK);
-        display_obj.tft.drawString(active_mode == ReconMode::WIFI_RECON
+        mini_tft.drawString(active_mode == ReconMode::WIFI_RECON
                                      ? "NEW ASSOCIATIONS" : "DEVICE TYPE", 8, relation_y, 1);
         for (uint8_t row = 0; row < 3; row++) {
           if (active_mode == ReconMode::WIFI_RECON) {
@@ -804,8 +817,8 @@ void ReconMission::drawDashboard(uint32_t current_time) {
                      event.mac[3], event.mac[4], event.mac[5],
                      event.label[0] ? event.label : "BLE");
           }
-          display_obj.tft.setTextColor(row == 2 ? TFT_CYAN : TFT_LIGHTGREY, TFT_BLACK);
-          display_obj.tft.drawString(line, 8, relation_y + 15 + row * 14, 1);
+          mini_tft.setTextColor(row == 2 ? TFT_CYAN : TFT_LIGHTGREY, TFT_BLACK);
+          mini_tft.drawString(line, 8, relation_y + 15 + row * 14, 1);
         }
 
         if (active_mode == ReconMode::WIFI_RECON) {
@@ -822,15 +835,15 @@ void ReconMission::drawDashboard(uint32_t current_time) {
             if (channel_activity[first_channel + offset] > peak)
               peak = channel_activity[first_channel + offset];
           const int16_t strip_y = RECON_SCREEN_HEIGHT - 31;
-          display_obj.tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
-          display_obj.tft.drawString("CH", 3, strip_y + 7, 1);
+          mini_tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+          mini_tft.drawString("CH", 3, strip_y + 7, 1);
           const int16_t chart_left = 22;
           const int16_t slot = (RECON_SCREEN_WIDTH - chart_left - 2) / visible_channels;
           for (uint8_t offset = 0; offset < visible_channels; offset++) {
             const uint8_t index = first_channel + offset;
             const int16_t height = 2 + (channel_activity[index] * 12UL) / peak;
             const int16_t x = chart_left + offset * slot;
-            display_obj.tft.fillRect(x + 1, strip_y + 16 - height,
+            mini_tft.fillRect(x + 1, strip_y + 16 - height,
                                      slot > 3 ? slot - 3 : 1, height,
                                      channel_activity[index] ? TFT_BLUE : TFT_DARKGREY);
             #ifdef HAS_DUAL_BAND
@@ -840,13 +853,13 @@ void ReconMission::drawDashboard(uint32_t current_time) {
             #endif
             char channel_label[4];
             snprintf(channel_label, sizeof(channel_label), "%u", channel);
-            display_obj.tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-            display_obj.tft.drawCentreString(channel_label, x + slot / 2, strip_y + 19, 1);
+            mini_tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+            mini_tft.drawCentreString(channel_label, x + slot / 2, strip_y + 19, 1);
           }
         }
       #else
         const int16_t event_y = RECON_SCREEN_HEIGHT - 32;
-        display_obj.tft.drawFastHLine(5, event_y - 5, RECON_SCREEN_WIDTH - 10, TFT_DARKGREY);
+        mini_tft.drawFastHLine(5, event_y - 5, RECON_SCREEN_WIDTH - 10, TFT_DARKGREY);
         if (active_mode == ReconMode::WIFI_RECON && ui_relationship_head) {
           const UiRelationship& relationship =
               ui_relationships[(ui_relationship_head + 2) % 3];
@@ -854,8 +867,8 @@ void ReconMission::drawDashboard(uint32_t current_time) {
           reconTruncate(relationship.ap_name, ap_name, sizeof(ap_name));
           snprintf(line, sizeof(line), "%02X:%02X > %s", relationship.station[4],
                    relationship.station[5], ap_name);
-          display_obj.tft.setTextColor(TFT_CYAN, TFT_BLACK);
-          display_obj.tft.drawCentreString(line, RECON_SCREEN_WIDTH / 2, event_y, 1);
+          mini_tft.setTextColor(TFT_CYAN, TFT_BLACK);
+          mini_tft.drawCentreString(line, RECON_SCREEN_WIDTH / 2, event_y, 1);
         } else {
           const UiEvent& latest = ui_events[(ui_event_head + 3) % 4];
           if (latest.type == 'p') snprintf(line, sizeof(line), "PROBE %.12s", latest.label);
@@ -865,13 +878,16 @@ void ReconMission::drawDashboard(uint32_t current_time) {
           else if (latest.type) snprintf(line, sizeof(line), "%c %02X:%02X:%02X",
                                          latest.type, latest.mac[3], latest.mac[4], latest.mac[5]);
           else snprintf(line, sizeof(line), "Waiting...");
-          display_obj.tft.setTextColor(latest.type == 'd' ? TFT_RED : TFT_LIGHTGREY, TFT_BLACK);
-          display_obj.tft.drawCentreString(line, RECON_SCREEN_WIDTH / 2, event_y, 1);
+          mini_tft.setTextColor(latest.type == 'd' ? TFT_RED : TFT_LIGHTGREY, TFT_BLACK);
+          mini_tft.drawCentreString(line, RECON_SCREEN_WIDTH / 2, event_y, 1);
         }
       #endif
     #endif
-    display_obj.tft.setTextColor(active_mode == ReconMode::WIFI_RECON ? TFT_GREEN : TFT_CYAN,
-                                 TFT_BLACK);
+    mini_tft.setTextColor(active_mode == ReconMode::WIFI_RECON ? TFT_GREEN : TFT_CYAN,
+                          TFT_BLACK);
+    #ifdef MARAUDER_C5TAKO
+      display_obj.presentMiniCanvas(true);
+    #endif
   #else
     (void)current_time;
   #endif

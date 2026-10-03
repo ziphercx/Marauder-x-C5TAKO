@@ -5,6 +5,7 @@
 #define HAS_SCREEN
 #define HAS_MINI_SCREEN
 #define HAS_BUTTONS
+#define HAS_MINI_KB
 #define HAS_BATTERY
 #define BATTERY_ADC_PIN 6
 #define BATTERY_ADC_ENABLE_PIN 26

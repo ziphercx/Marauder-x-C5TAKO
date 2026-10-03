@@ -537,6 +537,15 @@ void MenuFunctions::main(uint32_t currentTime)
           (wifi_scan_obj.currentScanMode != GPS_TRACKER) &&
           (wifi_scan_obj.currentScanMode != WIFI_SCAN_GPS_NMEA))
       {
+        #ifdef MARAUDER_C5TAKO
+          // Every active scan needs a physical exit, including newly added upstream modes.
+          wifi_scan_obj.StartScan(WIFI_SCAN_OFF);
+          display_obj.init();
+          changeMenu(current_menu, true);
+          x = -1;
+          y = -1;
+          return;
+        #endif
         // Stop the current scan
         if ((wifi_scan_obj.currentScanMode == WIFI_SCAN_PROBE) ||
             (wifi_scan_obj.currentScanMode == WIFI_SCAN_SAE_COMMIT) ||
@@ -1048,6 +1057,20 @@ void MenuFunctions::main(uint32_t currentTime)
             wifi_scan_obj.changeChannel(wifi_scan_obj.dual_band_channels[wifi_scan_obj.dual_band_channel_index]);
           #endif
         }
+        #ifdef MARAUDER_C5TAKO
+          else if (wifi_scan_obj.currentScanMode == WIFI_SCAN_AP ||
+                   wifi_scan_obj.currentScanMode == WIFI_SCAN_PROBE ||
+                   wifi_scan_obj.currentScanMode == BT_SCAN_FLOCK ||
+                   wifi_scan_obj.currentScanMode == WIFI_SCAN_DEAUTH ||
+                   wifi_scan_obj.currentScanMode == WIFI_SCAN_EAPOL ||
+                   wifi_scan_obj.currentScanMode == WIFI_SCAN_ACTIVE_EAPOL ||
+                   wifi_scan_obj.currentScanMode == WIFI_SCAN_ACTIVE_LIST_EAPOL ||
+                   wifi_scan_obj.currentScanMode == WIFI_SCAN_RAW_CAPTURE) {
+            settings_obj.toggleSetting("ChanHop");
+            wifi_scan_obj.channel_hop = settings_obj.loadSetting<bool>("ChanHop");
+            display_obj.tftDrawChanHopButton(false, wifi_scan_obj.channel_hop);
+          }
+        #endif
       }
       #endif
 
@@ -1211,6 +1234,9 @@ void MenuFunctions::drawC5TakoStatusBar(bool initial) {
   const int ram = getDRAMUsagePercent();
   String status = "CH:" + String(channel) + " RAM:" + String(ram) +
                   " BAT:" + String(battery_obj.battery_level) + (sd_obj.supported ? " SD" : " --");
+  #ifdef HAS_GPS
+    status += String(gps_obj.getGpsModuleStatus()) + String(gps_obj.getFixStatus());
+  #endif
   static String previous;
   if (!initial && status == previous) return;
   previous = status;
@@ -1222,12 +1248,20 @@ void MenuFunctions::drawC5TakoStatusBar(bool initial) {
   tft.setTextDatum(TL_DATUM);
   tft.fillRect(0, 0, SCREEN_WIDTH, STATUS_BAR_WIDTH, STATUSBAR_COLOR);
   tft.setTextColor(TFT_WHITE, STATUSBAR_COLOR);
-  // Mini-style fields scaled to 2x, with room for three-digit channels and percentages.
-  tft.drawString("CH:" + String(channel), 4, 0, 1);
-  tft.drawString(String(ram) + "%", 84, 0, 1);
-  tft.drawString(String(battery_obj.battery_level) + "%", 140, 0, 1);
+  // Five 2x bitmap fields fit the 240-pixel bar, including a three-digit channel.
+  #ifdef HAS_GPS
+    if (gps_obj.getGpsModuleStatus()) {
+      tft.setTextColor(gps_obj.getFixStatus() ? TFT_GREEN : TFT_RED, STATUSBAR_COLOR);
+      tft.drawString("GPS", 0, 0, 1);
+    }
+  #endif
+  tft.setTextColor(TFT_WHITE, STATUSBAR_COLOR);
+  tft.drawString("CH:" + String(channel), 39, 0, 1);
+  tft.drawString(String(ram) + "%", 114, 0, 1);
+  tft.setTextColor(battery_obj.battery_level > 25 ? TFT_GREEN : TFT_RED, STATUSBAR_COLOR);
+  tft.drawString(String(battery_obj.battery_level) + "%", 165, 0, 1);
   tft.setTextColor(sd_obj.supported ? TFT_GREEN : TFT_RED, STATUSBAR_COLOR);
-  tft.drawString("SD", TFT_WIDTH - 28, 0, 1);
+  tft.drawString("SD", SCREEN_WIDTH - 24, 0, 1);
   tft.setTextSize(size);
   tft.setTextFont(font);
   tft.setTextDatum(datum);
@@ -4493,15 +4527,25 @@ void MenuFunctions::buildGeofenceActionMenu(uint8_t slot) {
           // Display info on screen
           if (pressed) {
             this->displayCurrentMenu();
+            #ifdef MARAUDER_C5TAKO
+              display_obj.tft.setFreeFont(NULL);
+              display_obj.tft.setTextSize(1);
+            #endif
             display_obj.tft.setTextWrap(false);
-            display_obj.tft.fillRect(0, SCREEN_HEIGHT / 3, SCREEN_WIDTH, STATUS_BAR_WIDTH, TFT_BLACK);
-            display_obj.tft.fillRect(0, SCREEN_HEIGHT / 3 + TEXT_HEIGHT * 2, SCREEN_WIDTH, STATUS_BAR_WIDTH, TFT_BLACK);
+            #ifdef MARAUDER_C5TAKO
+              display_obj.tft.fillRect(0, SCREEN_HEIGHT / 3, SCREEN_WIDTH,
+                                       SCREEN_HEIGHT - SCREEN_HEIGHT / 3, TFT_BLACK);
+            #else
+              display_obj.tft.fillRect(0, SCREEN_HEIGHT / 3, SCREEN_WIDTH, STATUS_BAR_WIDTH, TFT_BLACK);
+              display_obj.tft.fillRect(0, SCREEN_HEIGHT / 3 + TEXT_HEIGHT * 2, SCREEN_WIDTH, STATUS_BAR_WIDTH, TFT_BLACK);
+            #endif
             display_obj.tft.setCursor(0, SCREEN_HEIGHT / 3);
             display_obj.tft.setTextColor(TFT_CYAN, TFT_BLACK);
             display_obj.tft.println(wifi_scan_obj.current_mini_kb_ssid + "\n");
             display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
 
-            display_obj.tft.println(ssids->get(0).essid);
+            if (ssids->size() > 0)
+              display_obj.tft.println(ssids->get(0).essid);
 
             display_obj.tft.setTextColor(TFT_ORANGE, TFT_BLACK);
             #ifdef HAS_MINI_KB
