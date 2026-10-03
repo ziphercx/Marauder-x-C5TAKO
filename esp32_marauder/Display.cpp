@@ -233,7 +233,7 @@ bool Display::isTouchHeld(uint16_t threshold) {
 void Display::init() {
   tft.init();
 
-  #if defined(HAS_DUAL_BAND) && !defined(MARAUDER_MINI_V3)
+  #if defined(HAS_DUAL_BAND) && !defined(MARAUDER_MINI_V3) && !defined(MARAUDER_POOM)
     digitalWrite(TFT_BL, HIGH);
   #endif
 }
@@ -325,6 +325,17 @@ void Display::RunSetup() {
 void Display::drawBootSplash() {
   const int16_t width = tft.width();
   const int16_t height = tft.height();
+  #ifdef MARAUDER_POOM
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextWrap(false);
+    tft.setTextSize(1);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.drawCentreString("ESP32 Marauder", width / 2, 10, 1);
+    tft.drawCentreString(version_number, width / 2, 27, 1);
+    tft.drawCentreString("POOM", width / 2, 44, 1);
+    tft.display(true);
+    return;
+  #endif
   #ifdef MARAUDER_CYD_3_5_INCH
     constexpr bool half_scale_logo = true;
   #else
@@ -473,6 +484,9 @@ void Display::tftDrawYScaleButtons(byte y_scale)
 }
 
 void Display::tftDrawChannelScaleButtons(int set_channel, bool lnd_an) {
+  #ifdef MARAUDER_POOM
+    return;
+  #endif
   #ifndef MARAUDER_C5TAKO
   #ifdef MARAUDER_PANCAKE
     TOP_FIXED_AREA_2 = lnd_an ? 48 : 64;
@@ -535,6 +549,9 @@ void Display::tftDrawChannelScaleButtons(int set_channel, bool lnd_an) {
 }
 
 void Display::tftDrawChanHopButton(bool lnd_an, bool en) {
+  #ifdef MARAUDER_POOM
+    return;
+  #endif
   #ifndef MARAUDER_C5TAKO
   #ifdef MARAUDER_PANCAKE
     TOP_FIXED_AREA_2 = lnd_an ? 48 : 64;
@@ -598,6 +615,9 @@ void Display::tftDrawChanHopButton(bool lnd_an, bool en) {
 }
 
 void Display::tftDrawExitScaleButtons(bool lnd_an) {
+  #ifdef MARAUDER_POOM
+    return;
+  #endif
   #ifndef MARAUDER_C5TAKO
   #ifdef MARAUDER_PANCAKE
     TOP_FIXED_AREA_2 = lnd_an ? 48 : 64;
@@ -765,7 +785,9 @@ void Display::displayBuffer(bool do_clear)
         screen_buffer->add(display_buffer->shift());
 
         for (int i = 0; i < this->screen_buffer->size(); i++) {
-		  #ifdef MARAUDER_PANCAKE
+		  #ifdef MARAUDER_POOM
+			tft.setCursor(xPos, STATUS_BAR_WIDTH + (i * TEXT_HEIGHT));
+		  #elif defined(MARAUDER_PANCAKE)
 			tft.setCursor(xPos, (i * TEXT_HEIGHT) + TOP_FIXED_AREA_2);
 		  #else
             #ifdef MARAUDER_C5TAKO

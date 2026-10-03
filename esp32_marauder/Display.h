@@ -15,7 +15,11 @@
 #include "Assets.h"
 #include "BootSplash.h"
 
-#include <TFT_eSPI.h>
+#ifdef MARAUDER_POOM
+  #include "PoomDisplay.h"
+#else
+  #include <TFT_eSPI.h>
+#endif
 
 #if defined(MARAUDER_C5TAKO) && !defined(ST7789_DRIVER)
   #error "C5TAKO requires User_Setup_c5tako.h (ST7789_DRIVER)"
