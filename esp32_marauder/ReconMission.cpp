@@ -531,7 +531,8 @@ void ReconMission::writeManifest(bool complete) {
   // Keep the upstream Mini v3 dashboard layout when using the 240x240 panel.
   #define RECON_SCREEN_WIDTH 128
   #define RECON_SCREEN_HEIGHT 128
-#elif defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
+#elif defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV) || \
+    defined(MARAUDER_M5STACK_CORE2_AWS)
   #define RECON_SCREEN_WIDTH SCREEN_WIDTH
   #define RECON_SCREEN_HEIGHT SCREEN_HEIGHT
 #else

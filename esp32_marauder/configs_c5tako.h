@@ -17,6 +17,8 @@
 #define HAS_NIMBLE_2
 #define HAS_IDF_3
 #define HAS_DIRECT_UPLOAD
+#define HAS_CSI_MOTION
+#define HAS_CSI_BUTTON_CONTROLS
 
 #define L_BTN 23
 #define C_BTN 4

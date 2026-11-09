@@ -318,6 +318,9 @@ void CommandLine::runCommand(String input) {
     Serial.println(HELP_SNIFF_PMKID_CMD);
     Serial.println(HELP_SNIFF_SAE_CMD);
     Serial.println(HELP_REMOTE_ID_CMD);
+    #if defined(HAS_CSI_MOTION)
+      Serial.println(HELP_CSI_MOTION_CMD);
+    #endif
     Serial.println(HELP_STOPSCAN_CMD);
     #ifdef HAS_GPS
       Serial.println(HELP_WARDRIVE_CMD);
@@ -983,6 +986,31 @@ void CommandLine::runCommand(String input) {
       Serial.println(STOPSCAN_CMD);
       wifi_scan_obj.StartScan(WIFI_SCAN_AP_STA, TFT_MAGENTA);
     }
+    #if defined(HAS_CSI_MOTION)
+    else if (cmd_args.get(0) == CSI_MOTION_CMD) {
+      if (cmd_args.size() == 3 && cmd_args.get(1) == "start") {
+        const int ap_index = cmd_args.get(2).toInt();
+        if (ap_index < 0 || ap_index >= access_points->size()) {
+          Serial.println(F("Invalid AP index. Run sniffbeacon, stopscan, then list -a."));
+        } else {
+          const AccessPoint& ap = access_points->get(ap_index);
+          if (!csi_motion_obj.start(ap.bssid, ap.essid, ap.channel))
+            Serial.println(F("CSI motion start failed"));
+        }
+      } else if (cmd_args.size() == 2 && cmd_args.get(1) == "recalibrate") {
+        if (!csi_motion_obj.active()) Serial.println(F("CSI motion is not running"));
+        else {
+          csi_motion_obj.recalibrate();
+          Serial.println(F("CSI motion recalibration started; keep still for 30 seconds"));
+        }
+      } else if (cmd_args.size() == 2 && cmd_args.get(1) == "status") {
+        if (!csi_motion_obj.active()) Serial.println(F("CSI motion is not running"));
+        else csi_motion_obj.printStatus();
+      } else {
+        Serial.println(HELP_CSI_MOTION_CMD);
+      }
+    }
+    #endif
     // Raw sniff
     else if (cmd_args.get(0) == SNIFF_RAW_CMD)
       this->startScanFromCLI(WIFI_SCAN_RAW_CAPTURE, TFT_WHITE, "Raw sniff");
@@ -1867,17 +1895,11 @@ void CommandLine::runCommand(String input) {
         for (int i = 0; i < stations->size(); i++) {
           Station station = stations->get(i);
           if (station.selected) {
-            // Unselect "selected" ap
-            Station new_sta = station;
-            new_sta.selected = false;
-            stations->set(i, new_sta);
+            wifi_scan_obj.setStationSelected(i, false);
             count_unselected += 1;
           }
           else {
-            // Select "unselected" ap
-            Station new_sta = station;
-            new_sta.selected = true;
-            stations->set(i, new_sta);
+            wifi_scan_obj.setStationSelected(i, true);
             count_selected += 1;
           }
         }
@@ -1888,24 +1910,18 @@ void CommandLine::runCommand(String input) {
         // Mark Stations as selected
         for (int i = 0; i < sta_index.size(); i++) {
           int index = sta_index.get(i).toInt();
-          Station station = stations->get(index);
           if (!this->inRange(stations->size(), index)) {
             Serial.print(F("Index not in range: "));
             Serial.println(index);
             continue;
           }
+          Station station = stations->get(index);
           if (station.selected) {
-            // Unselect "selected" ap
-            Station new_sta = station;
-            new_sta.selected = false;
-            stations->set(index, new_sta);
+            wifi_scan_obj.setStationSelected(index, false);
             count_unselected += 1;
           }
           else {
-            // Select "unselected" ap
-            Station new_sta = station;
-            new_sta.selected = true;
-            stations->set(index, new_sta);
+            wifi_scan_obj.setStationSelected(index, true);
             count_selected += 1;
           }
         }
@@ -2045,6 +2061,11 @@ void CommandLine::runCommand(String input) {
       if (essid_sw != -1 && this->checkValueExists(&cmd_args, essid_sw))
         essid = cmd_args.get(essid_sw + 1);
 
+      if (!marauder::RuntimeMemoryGuard::instance().allow(
+              sizeof(AccessPoint) + sizeof(LinkedList<uint16_t>) + 128)) {
+        Serial.println(F("Memory pressure: AP not added"));
+        return;
+      }
       AccessPoint ap;
       ap.essid = essid;
       ap.channel = channel;
@@ -2063,7 +2084,11 @@ void CommandLine::runCommand(String input) {
       ap.has_msg_3 = false;
       ap.has_msg_4 = false;
 
-      access_points->add(ap);
+      if (!marauder::memoryGuardedAdd(access_points, ap)) {
+        delete ap.stations;
+        Serial.println(F("Memory pressure: AP not added"));
+        return;
+      }
 
       Serial.print(F("Added AP ["));
       Serial.print(access_points->size() - 1);
@@ -2124,11 +2149,18 @@ void CommandLine::runCommand(String input) {
       sta.packets = 0;
       sta.ap = ap_index;
 
-      stations->add(sta);
+      if (!marauder::memoryGuardedAdd(stations, sta)) {
+        Serial.println(F("Memory pressure: station not added"));
+        return;
+      }
 
       // Link station to AP
       AccessPoint ap = access_points->get(ap_index);
-      ap.stations->add(stations->size() - 1);
+      if (!marauder::memoryGuardedAdd(ap.stations, stations->size() - 1)) {
+        stations->pop();
+        Serial.println(F("Memory pressure: station not added"));
+        return;
+      }
       access_points->set(ap_index, ap);
 
       Serial.print(F("Added station ["));

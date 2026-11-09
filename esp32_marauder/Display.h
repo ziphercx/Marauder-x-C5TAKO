@@ -14,6 +14,7 @@
 #include "SPIFFS.h"
 #include "Assets.h"
 #include "BootSplash.h"
+#include "MemoryGuard.h"
 
 #ifdef MARAUDER_POOM
   #include "PoomDisplay.h"
@@ -32,6 +33,9 @@
 #endif
 #if (defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)) && !defined(ST7789_2_DRIVER)
   #error "Cardputer targets require their ST7789_2_DRIVER TFT_eSPI setup"
+#endif
+#if defined(MARAUDER_M5STACK_CORE2_AWS) && !defined(ILI9341_DRIVER)
+  #error "M5Stack Core2 target requires its ILI9341_DRIVER TFT_eSPI setup"
 #endif
 
 #ifdef HAS_CYD_TOUCH
@@ -85,15 +89,21 @@ class Display
 {
   private:
     bool SwitchOn = false;
-    
+
     bool run_setup = true;
-    
+
     // For the byte we read from the serial port
     byte data = 0;
-    
+
     // A few test variables used during debugging
     boolean change_colour = 1;
     boolean selected = 1;
+
+    #ifdef MARAUDER_M5STACK_CORE2_AWS
+      bool core2_full_touch_input = false;
+      int8_t core2_front_button = -1;
+      uint32_t core2_front_button_seen = 0;
+    #endif
 
     void drawFrame();
 
@@ -103,6 +113,7 @@ class Display
     void processAndPrintString(TFT_eSPI& tft, const String& originalString);
 
   public:
+    uint32_t last_touch_ms = 0;  // millis() of the last active touch read
     Display();
     TFT_eSPI tft = TFT_eSPI();
     #ifdef MARAUDER_C5TAKO
@@ -124,6 +135,8 @@ class Display
     bool draw_tft = false;
     bool exit_draw = false;
     bool headless_mode = false;
+    marauder::QueueBackpressureState display_queue_pressure{
+        DISPLAY_BUFFER_LIMIT};
 
     uint8_t TOP_FIXED_AREA_2 = 48;
     uint8_t print_delay_1, print_delay_2 = 10;
@@ -154,6 +167,10 @@ class Display
     int8_t menuButton(uint16_t *x, uint16_t *y, bool pressed, bool check_hold = false);
     uint8_t updateTouch(uint16_t *x, uint16_t *y, uint16_t threshold = 600);
     bool isTouchHeld(uint16_t threshold = 600);
+    #ifdef MARAUDER_M5STACK_CORE2_AWS
+      void setFullTouchInput(bool enabled) { core2_full_touch_input = enabled; }
+      bool isFrontButtonTouch() const { return core2_front_button >= 0; }
+    #endif
     void tftDrawGraphObjects(byte x_scale);
     void tftDrawEapolColorKey(bool filter = false);
     void tftDrawColorKey();
@@ -164,6 +181,8 @@ class Display
     void tftDrawChanHopButton(bool lnd_an = true, bool en = false);
     void buildBanner(String msg, int xpos);
     void clearScreen();
+    bool queueLine(const String& line);
+    bool queueCriticalLine(const String& line);
     void displayBuffer(bool do_clear = false);
     void drawBootSplash();
     void getTouchWhileFunction(bool pressed);

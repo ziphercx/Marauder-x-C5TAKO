@@ -118,6 +118,23 @@ void test_stale_detection_handles_millis_wrap() {
   TEST_ASSERT_TRUE(remoteIdIsStale(1000, 0xFFFFFF00U, 1000));
 }
 
+void test_callback_after_clock_sample_keeps_record() {
+  const uint32_t sampledTimes[] = {1000, 0xFFFFFFFEU};
+  for (uint32_t sampled : sampledTimes) {
+    RemoteIdRecord records[1];
+    RemoteIdStore store(records, 1);
+    const uint8_t mac[6] = {1, 2, 3, 4, 5, 6};
+    store.observe(mac, RemoteIdTransport::WifiBeacon, -35, sampled + 3);
+    TEST_ASSERT_FALSE(remoteIdIsStale(sampled, sampled + 3, 1000));
+    TEST_ASSERT_EQUAL_UINT32(0, store.updateLifecycle(sampled, 1000));
+    TEST_ASSERT_EQUAL_UINT32(0, store.pruneStale(sampled, 30000));
+    TEST_ASSERT_EQUAL_UINT32(1, store.size());
+    TEST_ASSERT_FALSE(store.at(0)->isLost);
+    TEST_ASSERT_EQUAL_UINT32(1, store.updateLifecycle(sampled + 1003, 1000));
+    TEST_ASSERT_EQUAL_UINT32(1, store.pruneStale(sampled + 30003, 30000));
+  }
+}
+
 void test_store_prunes_expired_records_and_preserves_target() {
   RemoteIdRecord records[3];
   RemoteIdStore store(records, 3);
@@ -182,6 +199,20 @@ void test_basic_id_selection_prefers_stable_device_serial() {
   TEST_ASSERT_TRUE(remoteIdShouldReplaceBasicId(1, true, 1));
 }
 
+void test_route_identity_keeps_one_track_across_transport_macs() {
+  RemoteIdRecord record;
+  std::strncpy(record.uasId, "186975016595", sizeof(record.uasId) - 1);
+  record.hasUasId = true;
+  const uint8_t firstMac[6] = {1, 2, 3, 4, 5, 6};
+  const uint8_t secondMac[6] = {6, 5, 4, 3, 2, 1};
+  std::memcpy(record.mac, secondMac, sizeof(record.mac));
+
+  TEST_ASSERT_TRUE(remoteIdIdentityMatches("186975016595", firstMac, record));
+  TEST_ASSERT_FALSE(remoteIdIdentityMatches("OTHER", firstMac, record));
+  TEST_ASSERT_FALSE(remoteIdIdentityMatches("OTHER", secondMac, record));
+  TEST_ASSERT_TRUE(remoteIdIdentityMatches(nullptr, secondMac, record));
+}
+
 void test_transport_formatter_handles_single_and_combined_methods() {
   char output[16];
   remoteIdFormatTransports(static_cast<uint8_t>(RemoteIdTransport::BleLegacy),
@@ -196,6 +227,49 @@ void test_transport_formatter_handles_single_and_combined_methods() {
   TEST_ASSERT_EQUAL_STRING("--", output);
 }
 
+void test_location_history_uses_ten_compact_meter_offsets() {
+  TEST_ASSERT_EQUAL_UINT32(4, sizeof(RemoteIdHistoryPoint));
+  RemoteIdRecord record;
+  const int32_t startLat = 400000000;
+  const int32_t lon = -740000000;
+  TEST_ASSERT_TRUE(remoteIdUpdateLocation(record, startLat, lon));
+  for (int i = 1; i <= 12; ++i)
+    TEST_ASSERT_TRUE(remoteIdUpdateLocation(record, startLat + i * 1000, lon));
+
+  TEST_ASSERT_EQUAL_UINT8(REMOTE_ID_HISTORY_CAPACITY, record.historyCount);
+  TEST_ASSERT_INT_WITHIN(1, -11, record.history[9].northM);
+  TEST_ASSERT_INT_WITHIN(2, -111, record.history[0].northM);
+  TEST_ASSERT_EQUAL_INT16(0, record.history[9].eastM);
+}
+
+void test_history_reprojects_with_current_grid_scale() {
+  RemoteIdRecord record;
+  remoteIdUpdateLocation(record, 400000000, -740000000);
+  remoteIdUpdateLocation(record, 400010000, -740000000);
+  const RemoteIdGridPoint near = remoteIdProjectHistoryToGrid(
+      record, record.history[0], 400000000, -740000000,
+      200, 100, 200.0f);
+  const RemoteIdGridPoint zoomedOut = remoteIdProjectHistoryToGrid(
+      record, record.history[0], 400000000, -740000000,
+      200, 100, 400.0f);
+  TEST_ASSERT_INT_WITHIN(1, 50, near.y);
+  TEST_ASSERT_INT_WITHIN(1, 50, zoomedOut.y);
+  TEST_ASSERT_INT_WITHIN(1, 100, near.x);
+  TEST_ASSERT_INT_WITHIN(1, 100, zoomedOut.x);
+}
+
+void test_scale_includes_history_tail() {
+  RemoteIdRecord record;
+  record.hasLocation = true;
+  record.latitudeE7 = 400000000;
+  record.longitudeE7 = -740000000;
+  record.historyCount = 1;
+  record.history[0].eastM = 400;
+  const float radius = remoteIdGridScaleMeters(
+      &record, 1, 400000000, -740000000, 50.0f);
+  TEST_ASSERT_TRUE(radius > 450.0f);
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_layout_profiles);
@@ -208,11 +282,16 @@ int main(int, char**) {
   RUN_TEST(test_distance_formatter_uses_kilometers);
   RUN_TEST(test_grid_radius_formatter_switches_to_kilometers);
   RUN_TEST(test_stale_detection_handles_millis_wrap);
+  RUN_TEST(test_callback_after_clock_sample_keeps_record);
   RUN_TEST(test_store_prunes_expired_records_and_preserves_target);
   RUN_TEST(test_lifecycle_marks_lost_and_reacquired);
   RUN_TEST(test_store_tracks_packet_rate_and_can_erase_duplicate_mac);
   RUN_TEST(test_coordinate_validation_rejects_unavailable_and_out_of_range);
   RUN_TEST(test_basic_id_selection_prefers_stable_device_serial);
+  RUN_TEST(test_route_identity_keeps_one_track_across_transport_macs);
   RUN_TEST(test_transport_formatter_handles_single_and_combined_methods);
+  RUN_TEST(test_location_history_uses_ten_compact_meter_offsets);
+  RUN_TEST(test_history_reprojects_with_current_grid_scale);
+  RUN_TEST(test_scale_includes_history_tail);
   return UNITY_END();
 }

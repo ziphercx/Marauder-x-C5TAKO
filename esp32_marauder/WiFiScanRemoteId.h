@@ -8,6 +8,17 @@ void copyIfPresent(char* destination, size_t destinationSize,
   destination[destinationSize - 1] = '\0';
 }
 
+#ifdef HAS_SD
+String remoteIdXmlEscape(String value) {
+  value.replace("&", "&amp;");
+  value.replace("<", "&lt;");
+  value.replace(">", "&gt;");
+  value.replace("\"", "&quot;");
+  value.replace("'", "&apos;");
+  return value;
+}
+#endif
+
 void updateKnownRemoteIdObservation(RemoteIdRecord& record,
                                     const uint8_t mac[6],
                                     RemoteIdTransport transport,
@@ -53,9 +64,11 @@ void WiFiScan::mergeRemoteIdRecord(RemoteIdRecord& destination,
   if (source.hasOperatorId) destination.hasOperatorId = true;
   if (source.hasDescription) destination.hasDescription = true;
   if (source.hasLocation) {
-    destination.hasLocation = true;
-    destination.latitudeE7 = source.latitudeE7;
-    destination.longitudeE7 = source.longitudeE7;
+    if (!destination.hasLocation && source.historyCount != 0) {
+      memcpy(destination.history, source.history, sizeof(destination.history));
+      destination.historyCount = source.historyCount;
+    }
+    remoteIdUpdateLocation(destination, source.latitudeE7, source.longitudeE7);
     destination.altitudeGeoM = source.altitudeGeoM;
     destination.altitudePressureM = source.altitudePressureM;
     destination.heightM = source.heightM;
@@ -222,6 +235,7 @@ void WiFiScan::RunRemoteIdScan(uint8_t scan_mode, uint16_t color) {
   #ifdef HAS_SD
     startLog("remoteid");
     buffer_obj.append("millis,uas_id,operator_id,transport,channel,rssi,packets,packet_rate_hz,state,lost_count,reacquired_count,last_lost_ms,last_reacquired_ms,lat,lon,alt_geo,alt_geo_valid,height,height_valid,speed,speed_valid,heading,heading_valid,operator_lat,operator_lon,auth_type,auth_page,auth_last_page,auth_length,auth_timestamp\n");
+    startRemoteIdGpx();
   #endif
 
   #ifdef HAS_SCREEN
@@ -229,15 +243,27 @@ void WiFiScan::RunRemoteIdScan(uint8_t scan_mode, uint16_t color) {
     // Preserve the status bar at the top of the display. Clearing the entire
     // screen erases its background, while periodic status updates repaint only
     // individual fields and leave the bar looking fragmented.
-    display_obj.tft.fillRect(0, STATUS_BAR_WIDTH, SCREEN_WIDTH,
-                             SCREEN_HEIGHT - STATUS_BAR_WIDTH, TFT_BLACK);
-    display_obj.tft.setTextWrap(false);
-    display_obj.tft.setTextSize(1);
-    display_obj.tft.setTextColor(TFT_CYAN, TFT_BLACK);
-    display_obj.tft.drawCentreString(scan_mode == REMOTE_ID_SCAN_TARGET
-                                        ? "Remote ID Target"
-                                        : "Remote ID Scan",
-                                    TFT_WIDTH / 2, 16, 2);
+    #ifdef MARAUDER_C5TAKO
+      TFT_eSPI& canvas = display_obj.miniCanvas();
+      const int16_t view_w = 128;
+      const int16_t view_h = 128;
+    #else
+      TFT_eSPI& canvas = display_obj.tft;
+      const int16_t view_w = SCREEN_WIDTH;
+      const int16_t view_h = SCREEN_HEIGHT;
+    #endif
+    canvas.fillRect(0, STATUS_BAR_WIDTH, view_w,
+                    view_h - STATUS_BAR_WIDTH, TFT_BLACK);
+    canvas.setTextWrap(false);
+    canvas.setTextSize(1);
+    canvas.setTextColor(TFT_CYAN, TFT_BLACK);
+    canvas.drawCentreString(scan_mode == REMOTE_ID_SCAN_TARGET
+                                ? "Remote ID Target"
+                                : "Remote ID Scan",
+                            view_w / 2, 16, 2);
+    #ifdef MARAUDER_C5TAKO
+      display_obj.presentMiniCanvas(true);
+    #endif
     #ifdef HAS_ILI9341
       display_obj.touchToExit();
     #endif
@@ -269,7 +295,8 @@ String WiFiScan::remoteIdLabel(size_t index) const {
   if (record != nullptr) snapshot = *record;
   portEXIT_CRITICAL(&remote_id_mux);
   if (record == nullptr) return "";
-  String id = snapshot.hasUasId ? String(snapshot.uasId) : macToString(snapshot.mac);
+  String id = screenIdentifier(
+      snapshot.hasUasId ? String(snapshot.uasId) : macToString(snapshot.mac));
   String label = String(snapshot.rssi) + " " + id;
   #ifdef HAS_GPS
     if (gps_obj.getFixStatus() && snapshot.hasLocation) {
@@ -384,6 +411,135 @@ void WiFiScan::logRemoteIdRecord(const RemoteIdRecord& record) {
   #endif
 }
 
+#ifdef HAS_SD
+void WiFiScan::startRemoteIdGpx() {
+  remote_id_gpx_active = false;
+  remote_id_gpx_file_name = "";
+  memset(remote_id_gpx_tracks, 0, sizeof(remote_id_gpx_tracks));
+  if (!sd_obj.supported || !settings_obj.loadSetting<bool>("SavePCAP")) return;
+  for (uint16_t index = 0; index < 10000; ++index) {
+    const String candidate = "/remoteid_" + String(index) + ".gpx";
+    if (!SD.exists(candidate)) {
+      remote_id_gpx_file_name = candidate;
+      remote_id_gpx_session_index = index;
+      break;
+    }
+  }
+  if (remote_id_gpx_file_name.length() == 0) return;
+  File file = SD.open(remote_id_gpx_file_name, FILE_WRITE);
+  if (!file) return;
+  file.print("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+  file.print("<gpx version=\"1.1\" creator=\"ESP32 Marauder Remote ID\" ");
+  file.print("xmlns=\"http://www.topografix.com/GPX/1/1\">\n");
+  file.close();
+  remote_id_gpx_active = true;
+  Serial.println("Remote ID GPX: " + remote_id_gpx_file_name);
+}
+
+void WiFiScan::logRemoteIdGpxPositions(uint32_t nowMs) {
+  if (!remote_id_gpx_active) return;
+  size_t count = 0;
+  portENTER_CRITICAL(&remote_id_mux);
+  for (size_t i = 0; i < remote_id_store.size() && count < REMOTE_ID_CAPACITY; ++i) {
+    RemoteIdRecord* record = remote_id_store.at(i);
+    if (record == nullptr || !record->hasLocation ||
+        record->lastGpxRevision == record->locationRevision ||
+        nowMs - record->lastGpxLoggedMs < 1000)
+      continue;
+    record->lastGpxLoggedMs = nowMs;
+    record->lastGpxRevision = record->locationRevision;
+    remote_id_snapshots[count++] = *record;
+  }
+  portEXIT_CRITICAL(&remote_id_mux);
+  if (count == 0) return;
+
+  for (size_t i = 0; i < count; ++i) {
+    const RemoteIdRecord& record = remote_id_snapshots[i];
+    size_t trackIndex = REMOTE_ID_CAPACITY;
+    for (size_t track = 0; track < REMOTE_ID_CAPACITY; ++track) {
+      RemoteIdGpxTrack& candidate = remote_id_gpx_tracks[track];
+      if (!candidate.used) continue;
+      if (remoteIdIdentityMatches(candidate.uasId, candidate.mac, record)) {
+        trackIndex = track;
+        if (record.hasUasId && candidate.uasId[0] == '\0') {
+          strncpy(candidate.uasId, record.uasId, sizeof(candidate.uasId) - 1);
+          strncpy(candidate.name, record.uasId, sizeof(candidate.name) - 1);
+        }
+        break;
+      }
+    }
+    if (trackIndex == REMOTE_ID_CAPACITY) {
+      for (size_t track = 0; track < REMOTE_ID_CAPACITY; ++track) {
+        if (remote_id_gpx_tracks[track].used) continue;
+        trackIndex = track;
+        RemoteIdGpxTrack& created = remote_id_gpx_tracks[track];
+        created.used = true;
+        memcpy(created.mac, record.mac, sizeof(created.mac));
+        if (record.hasUasId) {
+          strncpy(created.uasId, record.uasId, sizeof(created.uasId) - 1);
+          strncpy(created.name, record.uasId, sizeof(created.name) - 1);
+        } else {
+          macToString(record.mac).toCharArray(created.name, sizeof(created.name));
+        }
+        break;
+      }
+    }
+    if (trackIndex == REMOTE_ID_CAPACITY) continue;
+
+    char fragmentPath[40];
+    snprintf(fragmentPath, sizeof(fragmentPath), "/remoteid_%u_%u.tmp",
+             remote_id_gpx_session_index, static_cast<unsigned>(trackIndex));
+    File fragment = SD.open(fragmentPath, FILE_APPEND);
+    if (!fragment) continue;
+    fragment.print("      <trkpt lat=\"");
+    fragment.print(record.latitudeE7 / 1e7, 7);
+    fragment.print("\" lon=\"");
+    fragment.print(record.longitudeE7 / 1e7, 7);
+    fragment.print("\">\n");
+    if (record.altitudeGeoValid) {
+      fragment.print("        <ele>");
+      fragment.print(record.altitudeGeoM, 1);
+      fragment.print("</ele>\n");
+    }
+    fragment.print("      </trkpt>\n");
+    fragment.close();
+    ++remote_id_gpx_tracks[trackIndex].pointCount;
+  }
+}
+
+void WiFiScan::finishRemoteIdGpx() {
+  if (!remote_id_gpx_active) return;
+  File file = SD.open(remote_id_gpx_file_name, FILE_APPEND);
+  if (file) {
+    uint8_t copyBuffer[256];
+    for (size_t trackIndex = 0; trackIndex < REMOTE_ID_CAPACITY; ++trackIndex) {
+      const RemoteIdGpxTrack& track = remote_id_gpx_tracks[trackIndex];
+      if (!track.used || track.pointCount == 0) continue;
+      char fragmentPath[40];
+      snprintf(fragmentPath, sizeof(fragmentPath), "/remoteid_%u_%u.tmp",
+               remote_id_gpx_session_index, static_cast<unsigned>(trackIndex));
+      File fragment = SD.open(fragmentPath, FILE_READ);
+      if (!fragment) continue;
+      file.print("  <trk>\n    <name>");
+      file.print(remoteIdXmlEscape(String(track.name)));
+      file.print("</name>\n    <desc>Remote ID device route</desc>\n    <trkseg>\n");
+      while (fragment.available()) {
+        const size_t bytesRead = fragment.read(copyBuffer, sizeof(copyBuffer));
+        if (bytesRead == 0) break;
+        file.write(copyBuffer, bytesRead);
+      }
+      fragment.close();
+      file.print("    </trkseg>\n  </trk>\n");
+      SD.remove(fragmentPath);
+    }
+    file.print("</gpx>\n");
+    file.close();
+  }
+  memset(remote_id_gpx_tracks, 0, sizeof(remote_id_gpx_tracks));
+  remote_id_gpx_active = false;
+}
+#endif
+
 size_t WiFiScan::snapshotRemoteIds(RemoteIdRecord* records,
                                    size_t capacity) const {
   if (records == nullptr || capacity == 0) return 0;
@@ -418,22 +574,30 @@ bool WiFiScan::snapshotRemoteIdTarget(RemoteIdRecord& record) const {
 
 void WiFiScan::renderRemoteIdGlobal() {
   #ifdef HAS_SCREEN
-    // Keep the full render snapshot off the task stack on PSRAM targets.
-    static RemoteIdRecord records[REMOTE_ID_CAPACITY];
-    const size_t recordCount = snapshotRemoteIds(records, REMOTE_ID_CAPACITY);
-    const RemoteIdLayout layout = remoteIdLayoutForDisplay(SCREEN_WIDTH, SCREEN_HEIGHT);
+    const size_t recordCount =
+        snapshotRemoteIds(remote_id_snapshots, REMOTE_ID_CAPACITY);
+    #ifdef MARAUDER_C5TAKO
+      TFT_eSPI& canvas = display_obj.miniCanvas();
+      const int16_t view_w = 128;
+      const int16_t view_h = 128;
+    #else
+      TFT_eSPI& canvas = display_obj.tft;
+      const int16_t view_w = SCREEN_WIDTH;
+      const int16_t view_h = SCREEN_HEIGHT;
+    #endif
+    const RemoteIdLayout layout = remoteIdLayoutForDisplay(view_w, view_h);
     const int16_t top = 34;
-    const int16_t contentHeight = SCREEN_HEIGHT - top;
+    const int16_t contentHeight = view_h - top;
     const int16_t legendHeight = layout == RemoteIdLayout::SplitListGrid ? 12 : 0;
     const int16_t listHeight = layout == RemoteIdLayout::SplitListGrid
                                    ? (contentHeight - legendHeight) / 2
                                    : contentHeight;
-    display_obj.tft.fillRect(0, top, SCREEN_WIDTH, contentHeight, TFT_BLACK);
-    display_obj.tft.setTextSize(1);
-    display_obj.tft.setTextColor(TFT_CYAN, TFT_BLACK);
-    display_obj.tft.setCursor(2, top + 2);
-    display_obj.tft.print("RID devices: " + String(recordCount) +
-                          " CH:" + String(set_channel));
+    canvas.fillRect(0, top, view_w, contentHeight, TFT_BLACK);
+    canvas.setTextSize(1);
+    canvas.setTextColor(TFT_CYAN, TFT_BLACK);
+    canvas.setCursor(2, top + 2);
+    canvas.print("RID devices: " + String(recordCount) +
+                 " CH:" + String(set_channel));
     const size_t rows = layout == RemoteIdLayout::Compact ? 5 :
                         static_cast<size_t>((listHeight - 14) / 10);
     const size_t first = recordCount > rows
@@ -441,89 +605,111 @@ void WiFiScan::renderRemoteIdGlobal() {
                              : 0;
     int16_t y = top + 13;
     for (size_t i = first; i < recordCount; ++i) {
-      const RemoteIdRecord* record = &records[i];
+      const RemoteIdRecord* record = &remote_id_snapshots[i];
       char transports[16];
       remoteIdFormatTransports(record->transportMask, transports,
                                sizeof(transports));
-      display_obj.tft.setCursor(2, y);
-      display_obj.tft.setTextColor(rssiToColor(record->rssi), TFT_BLACK);
-      String id = record->hasUasId ? String(record->uasId) : macToString(record->mac);
-      display_obj.tft.print(String(i) + ":" + String(record->rssi) +
-                            " [" + String(transports) + "] " + id);
+      canvas.setCursor(2, y);
+      canvas.setTextColor(rssiToColor(record->rssi), TFT_BLACK);
+      String id = screenIdentifier(
+          record->hasUasId ? String(record->uasId) : macToString(record->mac));
+      canvas.print(String(i) + ":" + String(record->rssi) +
+                   " [" + String(transports) + "] " + id);
       y += 10;
     }
     if (first > 0) {
-      display_obj.tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
-      display_obj.tft.setCursor(SCREEN_WIDTH - 58, top + 2);
-      display_obj.tft.print("+" + String(first) + " older");
+      canvas.setTextColor(TFT_DARKGREY, TFT_BLACK);
+      canvas.setCursor(view_w - 58, top + 2);
+      canvas.print("+" + String(first) + " older");
     }
 
     if (layout == RemoteIdLayout::SplitListGrid) {
       const int16_t legendTop = top + listHeight;
-      display_obj.tft.setTextColor(TFT_GREEN, TFT_BLACK);
-      display_obj.tft.setCursor(3, legendTop + 1);
-      display_obj.tft.print("M Marauder");
-      display_obj.tft.setTextColor(TFT_CYAN, TFT_BLACK);
-      display_obj.tft.setCursor(SCREEN_WIDTH / 2 - 30, legendTop + 1);
-      display_obj.tft.print("A Aircraft");
-      display_obj.tft.setTextColor(TFT_MAGENTA, TFT_BLACK);
-      display_obj.tft.setCursor(SCREEN_WIDTH - 62, legendTop + 1);
-      display_obj.tft.print("O Operator");
+      canvas.setTextColor(TFT_GREEN, TFT_BLACK);
+      canvas.setCursor(3, legendTop + 1);
+      canvas.print("M Marauder");
+      canvas.setTextColor(TFT_CYAN, TFT_BLACK);
+      canvas.setCursor(view_w / 2 - 30, legendTop + 1);
+      canvas.print("A Aircraft");
+      canvas.setTextColor(TFT_MAGENTA, TFT_BLACK);
+      canvas.setCursor(view_w - 62, legendTop + 1);
+      canvas.print("O Operator");
       const int16_t gridTop = legendTop + legendHeight;
-      const int16_t gridHeight = SCREEN_HEIGHT - gridTop;
-      display_obj.tft.drawRect(0, gridTop, SCREEN_WIDTH, gridHeight, TFT_DARKGREY);
-      display_obj.tft.drawFastVLine(SCREEN_WIDTH / 2, gridTop + 2,
-                                   gridHeight - 4, TFT_DARKGREY);
-      display_obj.tft.drawFastHLine(2, gridTop + gridHeight / 2,
-                                   SCREEN_WIDTH - 4, TFT_DARKGREY);
-      display_obj.tft.setTextColor(TFT_WHITE, TFT_BLACK);
-      display_obj.tft.setCursor(SCREEN_WIDTH / 2 - 3, gridTop + 2);
-      display_obj.tft.print("N");
+      const int16_t gridHeight = view_h - gridTop;
+      canvas.drawRect(0, gridTop, view_w, gridHeight, TFT_DARKGREY);
+      canvas.drawFastVLine(view_w / 2, gridTop + 2,
+                           gridHeight - 4, TFT_DARKGREY);
+      canvas.drawFastHLine(2, gridTop + gridHeight / 2,
+                           view_w - 4, TFT_DARKGREY);
+      canvas.setTextColor(TFT_WHITE, TFT_BLACK);
+      canvas.setCursor(view_w / 2 - 3, gridTop + 2);
+      canvas.print("N");
       #ifdef HAS_GPS
         if (gps_obj.getFixStatus()) {
           const int32_t originLat = gps_obj.getLatInt() * 10;
           const int32_t originLon = gps_obj.getLonInt() * 10;
-          const float radius = remoteIdGridScaleMeters(records,
+          const float radius = remoteIdGridScaleMeters(remote_id_snapshots,
               recordCount, originLat, originLon, 50.0f);
-          display_obj.tft.fillCircle(SCREEN_WIDTH / 2,
+          canvas.fillCircle(view_w / 2,
               gridTop + gridHeight / 2, 3, TFT_GREEN);
           for (size_t i = 0; i < recordCount; ++i) {
-            const RemoteIdRecord* record = &records[i];
+            const RemoteIdRecord* record = &remote_id_snapshots[i];
             if (record->hasLocation) {
+              RemoteIdGridPoint previousTail;
+              bool hasPreviousTail = false;
+              for (size_t h = 0; h < record->historyCount; ++h) {
+                const RemoteIdGridPoint tail = remoteIdProjectHistoryToGrid(
+                    *record, record->history[h], originLat, originLon,
+                    view_w, gridHeight, radius, 8);
+                if (tail.visible) {
+                  if (hasPreviousTail)
+                    canvas.drawLine(previousTail.x,
+                        gridTop + previousTail.y, tail.x,
+                        gridTop + tail.y, TFT_RED);
+                  previousTail = tail;
+                  hasPreviousTail = true;
+                }
+              }
               RemoteIdGridPoint p = remoteIdProjectToGrid(record->latitudeE7,
                   record->longitudeE7, originLat, originLon,
-                  SCREEN_WIDTH, gridHeight, radius, 8);
+                  view_w, gridHeight, radius, 8);
+              if (hasPreviousTail && p.visible)
+                canvas.drawLine(previousTail.x,
+                    gridTop + previousTail.y, p.x, gridTop + p.y, TFT_RED);
               if (p.visible)
-                display_obj.tft.fillCircle(p.x, gridTop + p.y, 3, TFT_CYAN);
+                canvas.fillCircle(p.x, gridTop + p.y, 3, TFT_CYAN);
               else if (p.offGrid)
-                display_obj.tft.drawCircle(p.x, gridTop + p.y, 4, TFT_CYAN);
+                canvas.drawCircle(p.x, gridTop + p.y, 4, TFT_CYAN);
             }
             if (record->hasOperatorLocation) {
               RemoteIdGridPoint p = remoteIdProjectToGrid(record->operatorLatitudeE7,
                   record->operatorLongitudeE7, originLat, originLon,
-                  SCREEN_WIDTH, gridHeight, radius, 8);
+                  view_w, gridHeight, radius, 8);
               if (p.visible)
-                display_obj.tft.fillCircle(p.x, gridTop + p.y, 3, TFT_MAGENTA);
+                canvas.fillCircle(p.x, gridTop + p.y, 3, TFT_MAGENTA);
               else if (p.offGrid)
-                display_obj.tft.drawCircle(p.x, gridTop + p.y, 4, TFT_MAGENTA);
+                canvas.drawCircle(p.x, gridTop + p.y, 4, TFT_MAGENTA);
             }
           }
-          display_obj.tft.setCursor(3, SCREEN_HEIGHT - 10);
-          display_obj.tft.setTextColor(TFT_WHITE, TFT_BLACK);
+          canvas.setCursor(3, view_h - 10);
+          canvas.setTextColor(TFT_WHITE, TFT_BLACK);
           char radiusLabel[16];
           remoteIdFormatGridRadius(radius, radiusLabel, sizeof(radiusLabel));
-          display_obj.tft.print("R " + String(radiusLabel));
+          canvas.print("R " + String(radiusLabel));
         } else {
-          display_obj.tft.setTextColor(TFT_RED, TFT_BLACK);
-          display_obj.tft.drawCentreString("NO GPS FIX", SCREEN_WIDTH / 2,
-                                           gridTop + gridHeight / 2 - 4, 1);
+          canvas.setTextColor(TFT_RED, TFT_BLACK);
+          canvas.drawCentreString("NO GPS FIX", view_w / 2,
+                                  gridTop + gridHeight / 2 - 4, 1);
         }
       #else
-        display_obj.tft.setTextColor(TFT_RED, TFT_BLACK);
-        display_obj.tft.drawCentreString("GPS UNAVAILABLE", SCREEN_WIDTH / 2,
-                                         gridTop + gridHeight / 2 - 4, 1);
+        canvas.setTextColor(TFT_RED, TFT_BLACK);
+        canvas.drawCentreString("GPS UNAVAILABLE", view_w / 2,
+                                gridTop + gridHeight / 2 - 4, 1);
       #endif
     }
+    #ifdef MARAUDER_C5TAKO
+      display_obj.presentMiniCanvas(true);
+    #endif
   #endif
 }
 
@@ -532,19 +718,30 @@ void WiFiScan::renderRemoteIdTarget() {
   if (!snapshotRemoteIdTarget(snapshot)) return;
   const RemoteIdRecord* record = &snapshot;
   #ifdef HAS_SCREEN
-    display_obj.tft.fillRect(0, 34, SCREEN_WIDTH, SCREEN_HEIGHT - 34, TFT_BLACK);
-    display_obj.tft.setTextSize(1);
-    display_obj.tft.setTextColor(TFT_CYAN, TFT_BLACK);
+    #ifdef MARAUDER_C5TAKO
+      TFT_eSPI& canvas = display_obj.miniCanvas();
+      const int16_t view_w = 128;
+      const int16_t view_h = 128;
+    #else
+      TFT_eSPI& canvas = display_obj.tft;
+      const int16_t view_w = SCREEN_WIDTH;
+      const int16_t view_h = SCREEN_HEIGHT;
+    #endif
+    canvas.fillRect(0, 34, view_w, view_h - 34, TFT_BLACK);
+    canvas.setTextSize(1);
+    canvas.setTextColor(TFT_CYAN, TFT_BLACK);
     int16_t y = 36;
     auto line = [&](const String& value, uint16_t color = TFT_WHITE) {
-      display_obj.tft.setCursor(2, y);
-      display_obj.tft.setTextColor(color, TFT_BLACK);
-      display_obj.tft.print(value);
+      if (y + 8 > view_h) return;
+      canvas.setCursor(2, y);
+      canvas.setTextColor(color, TFT_BLACK);
+      canvas.print(value);
       y += 11;
     };
-    line(record->hasUasId ? "ID " + String(record->uasId)
-                          : "MAC " + macToString(record->mac), TFT_CYAN);
-    if (record->hasOperatorId) line("OP " + String(record->operatorId), TFT_MAGENTA);
+    line(record->hasUasId ? "ID " + screenIdentifier(String(record->uasId))
+                          : "MAC " + screenIdentifier(macToString(record->mac)), TFT_CYAN);
+    if (record->hasOperatorId)
+      line("OP " + screenIdentifier(String(record->operatorId)), TFT_MAGENTA);
     if (record->hasDescription) line("DESC " + String(record->description));
     char transports[16];
     remoteIdFormatTransports(record->transportMask, transports,
@@ -591,6 +788,9 @@ void WiFiScan::renderRemoteIdTarget() {
             gps_obj.getLonInt() * 10, record->latitudeE7, record->longitudeE7);
         line("RANGE " + String(distance, 0) + "m  BRG " + String(bearing, 0), TFT_GREEN);
       }
+    #endif
+    #ifdef MARAUDER_C5TAKO
+      display_obj.presentMiniCanvas(true);
     #endif
   #endif
 }
