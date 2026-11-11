@@ -10933,7 +10933,10 @@ bool WiFiScan::filterActive() {
                                          18,
                                        #endif
                                        1);
-      #if defined(MARAUDER_MINI_V3) || defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
+      #if defined(MARAUDER_C5TAKO)
+        mini_tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+        mini_tft.drawCentreString("UP/DN CH OK EXIT", SCREEN_WIDTH / 2, 19, 1);
+      #elif defined(MARAUDER_MINI_V3) || defined(MARAUDER_CARDPUTER) || defined(MARAUDER_CARDPUTER_ADV)
         mini_tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
         mini_tft.drawCentreString("UP/DN CH  L EXIT", SCREEN_WIDTH / 2, 19, 1);
       #endif

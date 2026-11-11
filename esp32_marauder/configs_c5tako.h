@@ -2,6 +2,7 @@
 
 // XIAO ESP32-C5 carrier: reuse Marauder's button-driven screen and shared SPI SD.
 #define HAS_BT
+#define HAS_BT_REMOTE
 #define HAS_SCREEN
 #define HAS_MINI_SCREEN
 #define HAS_BUTTONS
@@ -19,6 +20,7 @@
 #define HAS_DIRECT_UPLOAD
 #define HAS_CSI_MOTION
 #define HAS_CSI_BUTTON_CONTROLS
+#define HAS_TEMP_SENSOR
 
 #define L_BTN 23
 #define C_BTN 4
